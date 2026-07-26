@@ -1100,17 +1100,89 @@ async function loadFactionsData() {
       }
     }
 
+    box.style.display = 'grid';
+    box.style.gridTemplateColumns = 'repeat(auto-fill, minmax(280px, 1fr))';
+    box.style.gap = '1.5rem';
+
     box.innerHTML = filtered.map(f => {
       const fName = f.faction || f.faction_name;
+      
+      // Theme settings
+      let accentColor = '#d946ef'; // Magenta
+      let iconHTML = '<i class="fa-solid fa-skull" style="font-size: 1.6rem; color: #d946ef;"></i>';
+      let factionTypeDesc = 'Organizație Ilegală';
+      let borderGlow = 'rgba(217, 70, 239, 0.15)';
+
+      const lowerName = fName.toLowerCase();
+      if (lowerName.includes('politi') || lowerName.includes('lspd')) {
+        accentColor = '#3b82f6'; // Electric Blue
+        iconHTML = '<i class="fa-solid fa-shield-halved" style="font-size: 1.6rem; color: #3b82f6;"></i>';
+        factionTypeDesc = 'Departament Guvernamental';
+        borderGlow = 'rgba(59, 130, 246, 0.2)';
+      } else if (lowerName.includes('smurd') || lowerName.includes('medic')) {
+        accentColor = '#10b981'; // Emerald Green
+        iconHTML = '<i class="fa-solid fa-heart-pulse" style="font-size: 1.6rem; color: #10b981;"></i>';
+        factionTypeDesc = 'Serviciu de Urgență';
+        borderGlow = 'rgba(16, 185, 129, 0.2)';
+      } else if (lowerName.includes('mecanic')) {
+        accentColor = '#f59e0b'; // Gold/Amber
+        iconHTML = '<i class="fa-solid fa-screwdriver-wrench" style="font-size: 1.6rem; color: #f59e0b;"></i>';
+        factionTypeDesc = 'Atelier Auto Oficial';
+        borderGlow = 'rgba(245, 158, 11, 0.2)';
+      }
+
       return `
-        <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--x-border); border-radius: var(--x-radius-sm); padding: 1rem; margin-bottom: 0.8rem; display: flex; justify-content: space-between; align-items: center; transition: var(--transition);" class="faction-card-item">
-          <div onclick="openFactionMembersModal('${fName}')" style="cursor: pointer; flex: 1;">
-            <span class="badge ${getFactionBadgeClass(fName)}" style="font-size: 0.88rem;">${fName}</span>
-            <div style="font-size: 0.78rem; color: var(--x-gold); margin-top: 0.3rem;"><i class="fa-solid fa-hand-pointer"></i> Apasă pentru a vedea lista de membri</div>
+        <div style="
+          position: relative;
+          background: rgba(255, 255, 255, 0.02);
+          backdrop-filter: blur(20px);
+          border: 1px solid rgba(255, 255, 255, 0.08);
+          border-top: 3px solid ${accentColor};
+          border-radius: 12px;
+          padding: 1.5rem;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          height: 140px;
+          transition: all 0.3s ease;
+          box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        " 
+        onmouseover="this.style.transform='translateY(-5px)'; this.style.borderColor='${accentColor}'; this.style.boxShadow='0 10px 20px ${borderGlow}'"
+        onmouseout="this.style.transform='translateY(0)'; this.style.borderColor='rgba(255, 255, 255, 0.08)'; this.style.boxShadow='0 8px 32px 0 rgba(0, 0, 0, 0.37)'">
+          
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="width: 45px; height: 45px; border-radius: 10px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); display: flex; align-items: center; justify-content: center;">
+              ${iconHTML}
+            </div>
+            ${isSupreme ? `
+              <button 
+                onclick="adminDeleteFaction('${fName}')"
+                style="
+                  background: rgba(239, 68, 68, 0.1); 
+                  border: 1px solid rgba(239, 68, 68, 0.2); 
+                  color: #ef4444; 
+                  width: 32px; height: 32px; 
+                  border-radius: 8px; 
+                  display: flex; align-items: center; justify-content: center; 
+                  cursor: pointer; 
+                  transition: all 0.2s;
+                "
+                onmouseover="this.style.background='#ef4444'; this.style.color='white';"
+                onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';"
+                title="Șterge"
+              >
+                <i class="fa-solid fa-trash" style="font-size: 0.85rem;"></i>
+              </button>
+            ` : ''}
           </div>
-          <div style="display: flex; align-items: center; gap: 1rem;">
-            <div style="color: var(--x-text-body); font-size: 0.88rem;">Membri: <b style="color: white;">${f.count || 0}</b></div>
-            ${isSupreme ? `<button class="btn btn-red" style="padding: 0.3rem 0.6rem; font-size: 0.75rem;" onclick="adminDeleteFaction('${fName}')"><i class="fa-solid fa-trash"></i> Șterge</button>` : ''}
+
+          <div style="margin-top: 1rem;">
+            <div style="color: white; font-family: 'Space Grotesk', sans-serif; font-size: 1.15rem; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase;">
+              ${fName}
+            </div>
+            <div style="color: var(--x-text-muted); font-size: 0.78rem; margin-top: 0.2rem; font-weight: 500;">
+              ${factionTypeDesc}
+            </div>
           </div>
         </div>
       `;
@@ -2081,12 +2153,22 @@ async function loadAdminAppStatuses() {
     
     let html = '';
     for (const [appType, isOpen] of Object.entries(currentAppStatuses)) {
+      let displayName = appType;
+      if (appType === 'Gang / Mafie') displayName = 'Cerere Gang';
+      if (appType === 'Staff') displayName = 'Cerere Staff';
+      if (appType === 'Development') displayName = 'Cerere Development';
+      if (appType === 'Departament Poliție (LSPD)') displayName = 'Cerere Poliție (LSPD)';
+      if (appType === 'Serviciul SMURD / Medic') displayName = 'Cerere Medic';
+      if (appType === 'Atelier Mecanici Auto') displayName = 'Cerere Mecanic';
+
+      const safeId = appType.replace(/[^a-zA-Z0-9]/g, '_');
+
       html += `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; background: rgba(255,255,255,0.05); border-radius: 6px;">
-          <div style="color: white; font-weight: 600;">${appType}</div>
+          <div style="color: white; font-weight: 600;">${displayName}</div>
           <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
-            <input type="checkbox" id="app-toggle-${appType}" ${isOpen ? 'checked' : ''}>
-            <span style="color: ${isOpen ? 'var(--x-success)' : 'var(--x-danger)'}; font-weight: bold;" id="app-label-${appType}">
+            <input type="checkbox" id="app-toggle-${safeId}" ${isOpen ? 'checked' : ''}>
+            <span style="color: ${isOpen ? 'var(--x-success)' : 'var(--x-danger)'}; font-weight: bold;" id="app-label-${safeId}">
               ${isOpen ? 'DESCHIS' : 'ÎNCHIS'}
             </span>
           </label>
@@ -2096,17 +2178,22 @@ async function loadAdminAppStatuses() {
     document.getElementById('admin-app-status-list').innerHTML = html;
 
     for (const appType of Object.keys(currentAppStatuses)) {
-      const chk = document.getElementById(`app-toggle-${appType}`);
-      chk.addEventListener('change', (e) => {
-        const lbl = document.getElementById(`app-label-${appType}`);
-        if (e.target.checked) {
-          lbl.innerText = 'DESCHIS';
-          lbl.style.color = 'var(--x-success)';
-        } else {
-          lbl.innerText = 'ÎNCHIS';
-          lbl.style.color = 'var(--x-danger)';
-        }
-      });
+      const safeId = appType.replace(/[^a-zA-Z0-9]/g, '_');
+      const chk = document.getElementById(`app-toggle-${safeId}`);
+      if (chk) {
+        chk.addEventListener('change', (e) => {
+          const lbl = document.getElementById(`app-label-${safeId}`);
+          if (lbl) {
+            if (e.target.checked) {
+              lbl.innerText = 'DESCHIS';
+              lbl.style.color = 'var(--x-success)';
+            } else {
+              lbl.innerText = 'ÎNCHIS';
+              lbl.style.color = 'var(--x-danger)';
+            }
+          }
+        });
+      }
     }
   } catch (err) {
     console.error('Error loading app statuses', err);
@@ -2116,7 +2203,8 @@ async function loadAdminAppStatuses() {
 async function adminSaveAppStatuses() {
   const newStatuses = {};
   for (const appType of Object.keys(currentAppStatuses)) {
-    const chk = document.getElementById(`app-toggle-${appType}`);
+    const safeId = appType.replace(/[^a-zA-Z0-9]/g, '_');
+    const chk = document.getElementById(`app-toggle-${safeId}`);
     if (chk) newStatuses[appType] = chk.checked;
   }
   

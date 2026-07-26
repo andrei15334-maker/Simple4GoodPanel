@@ -9,6 +9,13 @@ require('dotenv').config();
 const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const multer = require('multer');
+const fs = require('fs');
+
+// Ensure public/uploads directory exists
+const uploadsDir = path.join(__dirname, 'public/uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
 
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
@@ -289,6 +296,26 @@ async function initDB() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
+
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS panel_app_status (
+        app_type VARCHAR(100) PRIMARY KEY,
+        is_open TINYINT(1) NOT NULL DEFAULT 1
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Seed default app statuses
+    const defaultStatuses = [
+      'Staff',
+      'Departament Poliție (LSPD)',
+      'Serviciul SMURD / Medic',
+      'Atelier Mecanici Auto',
+      'Gang / Mafie',
+      'Development'
+    ];
+    for (const appType of defaultStatuses) {
+      await dbPool.query('INSERT IGNORE INTO panel_app_status (app_type, is_open) VALUES (?, 1)', [appType]);
+    }
 
     await seedDefaultRules();
     await seedDefaultQuestions();
@@ -2015,6 +2042,12 @@ app.post('/api/admin/sanction', authenticateToken, (req, res) => {
   });
   
   res.json({ success: true, message: `Sancțiune ${type.toUpperCase()} aplicată cu succes lui ${account.username}.` });
+});
+
+// Global error handling middleware (returns JSON instead of HTML)
+app.use((err, req, res, next) => {
+  console.error('Unhandled Error:', err);
+  res.status(500).json({ error: 'Eroare server: ' + err.message });
 });
 
 initDB().then(() => {
