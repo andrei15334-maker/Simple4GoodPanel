@@ -2588,19 +2588,21 @@ async function submitAdvancedSanction(action) {
   }
 
   showConfirmDialog('Ești sigur că vrei să aplici această sancțiune?', async () => {
-    const res = await fetch('/api/admin/advanced-sanction', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ target_id: targetId, action, value })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Eroare sancționare.');
-    showToast(data.message, 'success');
-    closeModal('modal-advanced-sanctions');
-    loadAdminStaffManager();
-  } catch(err) {
-    showToast(err.message, 'error');
-  }
+    try {
+      const res = await fetch('/api/admin/advanced-sanction', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify({ target_id: targetId, action, value })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Eroare sancționare.');
+      showToast(data.message, 'success');
+      closeModal('modal-advanced-sanctions');
+      loadAdminStaffManager();
+    } catch(err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 function filterAdminUsers() {
