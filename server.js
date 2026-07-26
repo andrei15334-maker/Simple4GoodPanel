@@ -1881,23 +1881,35 @@ app.post('/api/admin/app-status', authenticateToken, async (req, res) => {
 
 // --- USER PROFILE & SANCTIONS API ---
 
-app.get('/api/users/:id/profile', authenticateToken, (req, res) => {
+app.get('/api/users/:id/profile', authenticateToken, async (req, res) => {
   const targetId = parseInt(req.params.id);
-  const account = mockData.accounts.find(a => a.user_id === targetId || a.id === targetId);
-  if (!account) return res.status(404).json({ error: 'Utilizator inexistent.' });
-  
-  const userApps = mockData.applications.filter(a => a.user_id === targetId);
-  const userPosts = mockData.forum_topics.filter(t => t.author_id === targetId);
-  const userReplies = mockData.forum_posts.filter(p => p.author_id === targetId);
-  const userSanctions = mockData.sanctions.filter(s => s.user_id === targetId);
-  
-  res.json({
-    user: { id: account.id, user_id: account.user_id, username: account.username, site_rank: account.site_rank, email: account.email },
-    applications: userApps,
-    topics: userPosts,
-    replies: userReplies,
-    sanctions: userSanctions
-  });
+  try {
+    if (!useMock) {
+      const [accounts] = await dbPool.query('SELECT id, username, email, site_rank, faction, adminLvl, warns, is_banned, is_muted, created_at FROM panel_accounts WHERE id = ?', [targetId]);
+      if (accounts.length === 0) return res.status(404).json({ error: 'Utilizator inexistent.' });
+      const account = accounts[0];
+
+      const [userApps] = await dbPool.query('SELECT * FROM panel_applications WHERE user_id = ? ORDER BY created_at DESC', [targetId]);
+      const [userSanctions] = await dbPool.query('SELECT * FROM panel_sanctions WHERE user_id = ? ORDER BY created_at DESC', [targetId]);
+      const [userTopics] = await dbPool.query('SELECT * FROM panel_forum_topics WHERE author_id = ? ORDER BY created_at DESC LIMIT 10', [targetId]);
+
+      return res.json({
+        user: account,
+        applications: userApps,
+        sanctions: userSanctions,
+        topics: userTopics,
+        replies: []
+      });
+    } else {
+      const account = mockData.accounts.find(a => a.user_id === targetId || a.id === targetId);
+      if (!account) return res.status(404).json({ error: 'Utilizator inexistent.' });
+      const userApps = mockData.applications.filter(a => a.user_id === targetId);
+      const userSanctions = mockData.sanctions ? mockData.sanctions.filter(s => s.user_id === targetId) : [];
+      return res.json({ user: { id: account.id, username: account.username, site_rank: account.site_rank, email: account.email }, applications: userApps, sanctions: userSanctions, topics: [], replies: [] });
+    }
+  } catch(err) {
+    return res.status(500).json({ error: 'Eroare încărcare profil: ' + err.message });
+  }
 });
 
 app.post('/api/admin/sanction', authenticateToken, (req, res) => {
