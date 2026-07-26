@@ -1953,25 +1953,25 @@ async function loadGallery() {
     const res = await fetch('/api/gallery');
     const data = await res.json();
     const container = document.getElementById('gallery-container');
+
+    const isAdmin = currentUser && (currentUser.adminLvl > 0 || currentUser.site_rank === 'Admin Supreme' || currentUser.site_rank === 'Manager Panel');
+    const topBar = isAdmin ? `<div style="text-align: right; margin-bottom: 1.5rem;"><button class="btn btn-pink glow-btn" onclick="openModal('modal-add-gallery')"><i class="fa-solid fa-upload"></i> Încarcă Poză</button></div>` : '';
+
     if (!data.gallery || data.gallery.length === 0) {
-      container.innerHTML = '<div style="color: var(--x-text-muted);">Nu există imagini în galerie.</div>';
+      container.innerHTML = topBar + '<div style="color: var(--x-text-muted); text-align: center; padding: 3rem;"><i class="fa-solid fa-images" style="font-size: 3rem; margin-bottom: 1rem; display: block; opacity: 0.3;"></i>Nu există imagini în galerie.</div>';
       return;
-    }
-    let topBar = '';
-    if (token) {
-      topBar = `<div style="text-align: right; margin-bottom: 1.5rem;"><button class="btn btn-pink glow-btn" onclick="openModal('modal-add-gallery')"><i class="fa-solid fa-upload"></i> Încarcă Poză</button></div>`;
     }
 
     let gridHTML = `<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 1rem;">` + data.gallery.map(g => `
       <div style="background: rgba(255,255,255,0.03); border: 1px solid var(--x-border); border-radius: var(--x-radius-md); overflow: hidden;">
-        <div style="height: 150px; background: url('${g.image_url}') center/cover; border-bottom: 1px solid var(--x-border);"></div>
+        <div style="height: 180px; background: url('${g.image_url}') center/cover; border-bottom: 1px solid var(--x-border);"></div>
         <div style="padding: 1rem;">
           <div style="display: flex; justify-content: space-between; align-items: start;">
             <div>
               <div style="color: white; font-weight: 700; margin-bottom: 0.5rem; font-size: 1rem;">${g.description || 'Imagine'}</div>
               <div style="color: var(--x-text-muted); font-size: 0.8rem;">Adăugat de: <span style="color: var(--x-cyan); cursor: pointer; text-decoration: underline;" onclick="switchView('profile', ${g.uploader_id})">${g.uploader_name}</span></div>
             </div>
-            <button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border-color: var(--x-danger); color: var(--x-danger); display: ${currentUser && (currentUser.adminLvl > 0 || currentUser.site_rank === 'Admin Supreme' || currentUser.site_rank === 'Manager Panel') ? 'inline-block' : 'none'};" onclick="deleteGalleryImage(${g.id})"><i class="fa-solid fa-trash"></i></button>
+            ${isAdmin ? `<button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="deleteGalleryImage(${g.id})"><i class="fa-solid fa-trash"></i></button>` : ''}
           </div>
         </div>
       </div>
@@ -2551,21 +2551,20 @@ async function loadAdminStaffManager() {
     const roles = rolesData.roles || [];
 
     let html = data.staff.map(u => `
-      <div style="display: grid; grid-template-columns: 0.5fr 2fr 2fr 2fr 1fr 1fr; gap: 1rem; padding: 1rem; border-bottom: 1px solid var(--x-border); align-items: center; background: rgba(255,255,255,0.01);">
-        <div style="color: var(--x-text-muted);">${u.id}</div>
-        <div style="color: white; font-weight: 700;">${u.username}</div>
-        <div style="color: var(--x-text-muted);">${u.email}</div>
-        <div style="color: var(--x-gold);">
-          <select class="form-input" style="padding: 0.3rem;" onchange="updateUserSiteRank(${u.id}, this.value)">
+      <tr>
+        <td style="color: white; font-weight: 700; cursor: pointer;" onclick="switchView('profile', ${u.id})">${u.username}</td>
+        <td style="color: var(--x-text-muted); font-size: 0.85rem;">${u.email || '-'}</td>
+        <td>
+          <select class="form-input" style="padding: 0.3rem; font-size: 0.85rem;" onchange="updateUserSiteRank(${u.id}, this.value)">
             <option value="User" ${u.site_rank === 'User' ? 'selected' : ''}>User (Jucător)</option>
             ${roles.map(r => `<option value="${r.name}" ${u.site_rank === r.name ? 'selected' : ''}>${r.name}</option>`).join('')}
             <option value="Admin Supreme" ${u.site_rank === 'Admin Supreme' ? 'selected' : ''}>Admin Supreme</option>
             <option value="Manager Panel" ${u.site_rank === 'Manager Panel' ? 'selected' : ''}>Manager Panel</option>
           </select>
-        </div>
-        <div style="color: var(--x-cyan);">${u.faction || '-'}</div>
-        <div><button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="openAdvancedSanctions(${u.id})"><i class="fa-solid fa-gavel"></i> Acțiuni</button></div>
-      </div>
+        </td>
+        <td style="color: var(--x-cyan);">${u.faction || '-'}</td>
+        <td style="text-align: right;"><button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="openAdvancedSanctions(${u.id})"><i class="fa-solid fa-gavel"></i> Acțiuni</button></td>
+      </tr>
     `).join('');
     container.innerHTML = html;
   } catch (err) {
@@ -2588,9 +2587,7 @@ async function submitAdvancedSanction(action) {
     return;
   }
 
-  if (!confirm('Ești sigur că vrei să aplici această sancțiune?')) return;
-
-  try {
+  showConfirmDialog('Ești sigur că vrei să aplici această sancțiune?', async () => {
     const res = await fetch('/api/admin/advanced-sanction', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
