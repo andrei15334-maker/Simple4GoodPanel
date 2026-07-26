@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="100%" height="100%">
+  <defs>
+    <filter id="neon-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+    <linearGradient id="pinkGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff00a0" />
+      <stop offset="50%" stop-color="#ff007f" />
+      <stop offset="100%" stop-color="#e6006c" />
+    </linearGradient>
+  </defs>
+
+  <!-- Left Side: White S4 Shape -->
+  <path d="M 180 60 L 90 150 L 140 150 L 110 180 L 70 180 L 140 250 L 180 250 L 180 340 L 140 340 L 140 280 L 100 280 L 100 340 L 70 340 L 70 210 L 140 140 L 180 140 Z" fill="#FFFFFF" opacity="0.95" />
+
+  <!-- Right Side: Glowing Neon Pink G Shape -->
+  <path d="M 220 60 L 330 60 L 330 180 L 270 180 L 270 230 L 330 230 L 330 340 L 220 340 L 220 280 L 270 280 L 270 120 L 220 120 Z" fill="url(#pinkGradient)" filter="url(#neon-glow)" />
+</svg>
