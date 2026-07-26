@@ -31,7 +31,7 @@ async function initEmail() {
       service: 'gmail',
       auth: {
         user: 'Simple4Good2026@gmail.com',
-        pass: 'xltjvxekykkiqvra' // Spaces removed for app password
+        pass: process.env.GMAIL_PASS || 'xltjvxekykkiqvra'
       }
     });
     console.log(`Real Gmail SMTP ready for Simple4Good2026@gmail.com`);
@@ -873,24 +873,27 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   
   try {
     const resetToken = crypto.randomBytes(20).toString('hex');
-    const resetExpires = Date.now() + 15 * 60 * 1000; // 15 mins
+    const resetExpires = new Date(Date.now() + 15 * 60 * 1000);
     let accountName = 'Utilizator';
 
     if (!useMock) {
-      // Basic SQL logic for forgot password
+      const [rows] = await dbPool.query('SELECT * FROM panel_accounts WHERE email = ?', [email]);
+      if (rows.length === 0) return res.status(400).json({ error: 'Nu există niciun cont cu această adresă de email.' });
+      accountName = rows[0].username;
+      await dbPool.query('UPDATE panel_accounts SET reset_token = ?, reset_expires = ? WHERE email = ?', [resetToken, resetExpires, email]);
     } else {
       const account = mockData.accounts.find(a => a.email.toLowerCase() === email.toLowerCase());
-      if (!account) return res.status(400).json({ error: 'Nu exista niciun cont cu aceasta adresa de email.' });
-      
+      if (!account) return res.status(400).json({ error: 'Nu există niciun cont cu această adresă de email.' });
       account.reset_token = resetToken;
       account.reset_expires = resetExpires;
       accountName = account.username;
     }
 
     if (emailTransporter) {
-      const resetUrl = `http://localhost:3000/?reset_token=${resetToken}`;
+      const siteUrl = process.env.SITE_URL || `http://localhost:${PORT}`;
+      const resetUrl = `${siteUrl}/?reset_token=${resetToken}`;
       const mailOptions = {
-        from: '"S4G Panel" <noreply@s4g.ro>',
+        from: '"S4G Panel" <Simple4Good2026@gmail.com>',
         to: email,
         subject: 'Recuperare Parola - S4G Roleplay',
         html: `
@@ -898,16 +901,14 @@ app.post('/api/auth/forgot-password', async (req, res) => {
             <h2 style="color: #e62b3a; text-align: center;">RECUPERARE PAROLA</h2>
             <p>Salutare <strong>${accountName}</strong>,</p>
             <p>Am primit o cerere de resetare a parolei pentru contul tau. Dacă nu tu ai solicitat acest lucru, poți ignora acest e-mail.</p>
-            <p>Daca dorești să îți resetezi parola, apasă pe butonul de mai jos. Link-ul expira in 15 minute!</p>
+            <p>Dacă dorești să îți resetezi parola, apasă pe butonul de mai jos. Link-ul expiră în 15 minute!</p>
             <div style="text-align: center; margin: 2rem 0;">
-              <a href="${resetUrl}" style="background: #e62b3a; color: white; padding: 10px 20px; text-decoration: none; font-weight: bold; border-radius: 4px;">RESETEAZA PAROLA</a>
+              <a href="${resetUrl}" style="background: #e62b3a; color: white; padding: 10px 20px; text-decoration: none; font-weight: bold; border-radius: 4px;">RESETEAZĂ PAROLA</a>
             </div>
           </div>
         `
       };
-      
-      const info = await emailTransporter.sendMail(mailOptions);
-      console.log('Reset Email sent: %s', nodemailer.getTestMessageUrl(info));
+      await emailTransporter.sendMail(mailOptions);
     }
 
     res.json({ success: true, message: 'Un e-mail cu instrucțiuni a fost trimis pe adresa ta.' });
@@ -916,6 +917,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
+
 // RESET PASSWORD ENDPOINT
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
@@ -923,17 +925,21 @@ app.post('/api/auth/reset-password', async (req, res) => {
 
   try {
     if (!useMock) {
-      // Basic SQL logic for reset password
+      const [rows] = await dbPool.query('SELECT * FROM panel_accounts WHERE reset_token = ?', [token]);
+      if (rows.length === 0) return res.status(400).json({ error: 'Token invalid sau expirat.' });
+      const account = rows[0];
+      if (new Date() > new Date(account.reset_expires)) return res.status(400).json({ error: 'Token-ul a expirat. Solicită un nou email.' });
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+      await dbPool.query('UPDATE panel_accounts SET password = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?', [hashedPassword, account.id]);
     } else {
       const account = mockData.accounts.find(a => a.reset_token === token);
       if (!account) return res.status(400).json({ error: 'Token invalid.' });
       if (Date.now() > account.reset_expires) return res.status(400).json({ error: 'Token expirat.' });
-
-      account.password = bcrypt.hashSync(newPassword, 8);
+      account.password = bcrypt.hashSync(newPassword, 10);
       account.reset_token = null;
       account.reset_expires = null;
     }
-    res.json({ success: true, message: 'Parola a fost schimbata cu succes! Te poti autentifica.' });
+    res.json({ success: true, message: 'Parola a fost schimbată cu succes! Te poți autentifica.' });
   } catch (err) {
     res.status(400).json({ error: 'Eroare la resetare: ' + err.message });
   }

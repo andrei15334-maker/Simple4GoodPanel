@@ -100,7 +100,7 @@ CREATE TABLE IF NOT EXISTS `panel_applications` (
   `app_type` varchar(100) NOT NULL,
   `name_rp` varchar(100) NOT NULL,
   `age` int(11) NOT NULL,
-  `answers` json NOT NULL,
+  `answers` longtext NOT NULL,
   `status` varchar(50) NOT NULL DEFAULT 'In Asteptare',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`)
@@ -203,7 +203,7 @@ CREATE TABLE IF NOT EXISTS `panel_sanctions` (
 CREATE TABLE IF NOT EXISTS `panel_roles` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
   `name` varchar(100) NOT NULL,
-  `permissions` json NOT NULL,
+  `permissions` longtext NOT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `name_unique` (`name`)
 );
