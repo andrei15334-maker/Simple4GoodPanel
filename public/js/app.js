@@ -39,7 +39,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   loadDashboardStats();
   loadFactionsData();
-  loadTurfsMap();
+  if (typeof loadTurfsMap === 'function') {
+    loadTurfsMap();
+  }
 });
 
 // CUSTOM FLOATING TOAST NOTIFICATION SYSTEM
@@ -1196,9 +1198,22 @@ async function openFactionMembersModal(factionName) {
 // FULL-PAGE APPLICATIONS LOGIC & DELETE QUESTION
 function selectAppCategory(cat) {
   currentAppCategory = cat;
-  document.getElementById('btn-app-staff').className = cat === 'Staff' ? 'btn btn-pink' : 'btn btn-glass';
-  document.getElementById('btn-app-gang').className = cat === 'Gang / Mafie' ? 'btn btn-pink' : 'btn btn-glass';
-  document.getElementById('btn-app-dev').className = cat === 'Development' ? 'btn btn-pink' : 'btn btn-glass';
+  
+  const buttons = {
+    'Staff': 'btn-app-staff',
+    'Departament Poliție (LSPD)': 'btn-app-police',
+    'Serviciul SMURD / Medic': 'btn-app-smurd',
+    'Atelier Mecanici Auto': 'btn-app-mecanic',
+    'Gang / Mafie': 'btn-app-gang',
+    'Development': 'btn-app-dev'
+  };
+
+  for (const [key, id] of Object.entries(buttons)) {
+    const btn = document.getElementById(id);
+    if (btn) {
+      btn.className = (cat === key) ? 'btn btn-pink' : 'btn btn-glass';
+    }
+  }
   
   loadFullApplicationsPage(cat);
 }

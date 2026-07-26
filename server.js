@@ -256,6 +256,18 @@ async function initDB() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    // Check panel_rules schema
+    try {
+      const [columns] = await dbPool.query("SHOW COLUMNS FROM panel_rules");
+      const hasSlug = columns.some(c => c.Field === 'slug');
+      if (!hasSlug) {
+        console.log("Renaming/recreating panel_rules table to match new schema...");
+        await dbPool.query("DROP TABLE IF EXISTS panel_rules");
+      }
+    } catch (e) {
+      // Table doesn't exist, which is fine
+    }
+
     await dbPool.query(`
       CREATE TABLE IF NOT EXISTS panel_rules (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -279,6 +291,7 @@ async function initDB() {
     `);
 
     await seedDefaultRules();
+    await seedDefaultQuestions();
 
   } catch (err) {
     console.warn('MySQL offline, running live fallback mode:', err.message);
@@ -295,6 +308,47 @@ async function seedDefaultRules() {
     try {
       await dbPool.query('INSERT IGNORE INTO panel_rules (slug, title, category, content) VALUES (?, ?, ?, ?)', [r.slug, r.title, r.category, r.content]);
     } catch (e) {}
+  }
+}
+
+async function seedDefaultQuestions() {
+  if (useMock) return;
+  try {
+    const [rows] = await dbPool.query('SELECT COUNT(*) as count FROM panel_app_questions');
+    if (rows[0].count === 0) {
+      console.log('Seeding default application questions...');
+      const defaultQuestions = [
+        // Staff
+        { type: 'Staff', text: 'Câți ani ai și de ce vrei să te alături echipei Staff?' },
+        { type: 'Staff', text: 'Ce experiență ai ca membru Staff în alte comunități FiveM?' },
+        { type: 'Staff', text: 'Cum ai reacționa dacă un jucător te-ar insulta în timpul unui tichet?' },
+        // LSPD
+        { type: 'Departament Poliție (LSPD)', text: 'De ce dorești să intri în Departamentul de Poliție (LSPD)?' },
+        { type: 'Departament Poliție (LSPD)', text: 'Ce regulă din codul penal consideri că este cea mai importantă?' },
+        { type: 'Departament Poliție (LSPD)', text: 'Cum procedez în cazul unei somații în trafic?' },
+        // Medic
+        { type: 'Serviciul SMURD / Medic', text: 'De ce vrei să devii medic/SMURD în cadrul serverului?' },
+        { type: 'Serviciul SMURD / Medic', text: 'Ce înseamnă RP de acordare prim-ajutor (exemplu de comenzi /me, /do)?' },
+        { type: 'Serviciul SMURD / Medic', text: 'Cum reacționezi în cazul unui apel în zonă de conflict?' },
+        // Mecanic
+        { type: 'Atelier Mecanici Auto', text: 'De ce vrei să te alături echipei de Mecanici?' },
+        { type: 'Atelier Mecanici Auto', text: 'Ce cunoștințe ai despre personalizarea și repararea vehiculelor?' },
+        { type: 'Atelier Mecanici Auto', text: 'Exemplu de RP pentru schimbarea unui motor stricat.' },
+        // Gang
+        { type: 'Gang / Mafie', text: 'Ce mafie dorești să conduci sau să te alături și de ce?' },
+        { type: 'Gang / Mafie', text: 'Ce reguli speciale de war/turf cunoști?' },
+        { type: 'Gang / Mafie', text: 'Ce înseamnă un RP ilegal reușit?' },
+        // Development
+        { type: 'Development', text: 'Ce cunoștințe de programare ai (JavaScript, Lua, C#, HTML/CSS etc.)?' },
+        { type: 'Development', text: 'Ce scripturi sau sisteme ai implementat anterior pe FiveM?' }
+      ];
+
+      for (const q of defaultQuestions) {
+        await dbPool.query('INSERT INTO panel_app_questions (app_type, question_text) VALUES (?, ?)', [q.type, q.text]);
+      }
+    }
+  } catch (err) {
+    console.error('Error seeding questions:', err);
   }
 }
 
@@ -1007,8 +1061,14 @@ app.get('/api/factions', async (req, res) => {
   try {
     let factions = [];
     if (!useMock) {
-      const [f] = await dbPool.query('SELECT faction as faction_name, COUNT(*) as count FROM vrp_users WHERE faction IS NOT NULL AND faction != "Civil" GROUP BY faction');
-      factions = f;
+      try {
+        const [f] = await dbPool.query('SELECT faction as faction_name, COUNT(*) as count FROM vrp_users WHERE faction IS NOT NULL AND faction != "Civil" GROUP BY faction');
+        factions = f;
+      } catch (dbErr) {
+        console.warn('vrp_users missing, loading from panel_factions:', dbErr.message);
+        const [pf] = await dbPool.query('SELECT faction_name as faction, 0 as count FROM panel_factions');
+        factions = pf.map(f => ({ faction: f.faction, count: 0 }));
+      }
     } else {
       factions = mockData.factions.map(f => {
         const count = mockData.users.filter(u => u.faction && u.faction.toLowerCase().includes(f.faction_name.toLowerCase())).length;
@@ -1017,7 +1077,7 @@ app.get('/api/factions', async (req, res) => {
     }
     res.json({ factions });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare factiuni.' });
+    res.status(500).json({ error: 'Eroare factiuni: ' + err.message });
   }
 });
 
@@ -1059,8 +1119,13 @@ app.get('/api/factions/members', async (req, res) => {
   try {
     let members = [];
     if (!useMock) {
-      const [m] = await dbPool.query('SELECT id, username, firstName, secondName, factionRank, hoursPlayed FROM vrp_users WHERE faction LIKE ? ORDER BY factionRank DESC, hoursPlayed DESC', [`%${factionName}%`]);
-      members = m;
+      try {
+        const [m] = await dbPool.query('SELECT id, username, firstName, secondName, factionRank, hoursPlayed FROM vrp_users WHERE faction LIKE ? ORDER BY factionRank DESC, hoursPlayed DESC', [`%${factionName}%`]);
+        members = m;
+      } catch (dbErr) {
+        console.warn('vrp_users missing, returning empty faction members:', dbErr.message);
+        members = [];
+      }
     } else {
       const f = factionName.toLowerCase();
       members = mockData.users.filter(u => u.faction && u.faction.toLowerCase().includes(f));
@@ -1068,7 +1133,7 @@ app.get('/api/factions/members', async (req, res) => {
 
     res.json({ members });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare membri factiune.' });
+    res.status(500).json({ error: 'Eroare membri factiune: ' + err.message });
   }
 });
 
@@ -1550,7 +1615,7 @@ app.get('/api/gallery', async (req, res) => {
     }
     res.json({ gallery });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare gallery.' });
+    res.status(500).json({ error: 'Eroare gallery: ' + err.message });
   }
 });
 
@@ -1885,9 +1950,22 @@ app.get('/api/users/:id/profile', authenticateToken, async (req, res) => {
   const targetId = parseInt(req.params.id);
   try {
     if (!useMock) {
-      const [accounts] = await dbPool.query('SELECT id, username, email, site_rank, faction, adminLvl, warns, is_banned, is_muted, created_at FROM panel_accounts WHERE id = ?', [targetId]);
+      const [accounts] = await dbPool.query('SELECT id, username, email, site_rank, user_id, adminLvl, warns, is_banned, is_muted, created_at FROM panel_accounts WHERE id = ?', [targetId]);
       if (accounts.length === 0) return res.status(404).json({ error: 'Utilizator inexistent.' });
       const account = accounts[0];
+
+      let faction = 'Civil';
+      if (account.user_id > 0) {
+        try {
+          const [users] = await dbPool.query('SELECT faction FROM vrp_users WHERE id = ?', [account.user_id]);
+          if (users.length > 0) {
+            faction = users[0].faction || 'Civil';
+          }
+        } catch (dbErr) {
+          console.warn('vrp_users not found when loading faction:', dbErr.message);
+        }
+      }
+      account.faction = faction;
 
       const [userApps] = await dbPool.query('SELECT * FROM panel_applications WHERE user_id = ? ORDER BY created_at DESC', [targetId]);
       const [userSanctions] = await dbPool.query('SELECT * FROM panel_sanctions WHERE user_id = ? ORDER BY created_at DESC', [targetId]);
