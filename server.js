@@ -819,18 +819,32 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
     if (!useMock) {
       const [totAcc] = await dbPool.query('SELECT COUNT(*) as count FROM panel_accounts');
-      const [stf] = await dbPool.query("SELECT COUNT(*) as count FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad'");
+      
+      let hasStaffGrade = false;
+      try {
+        const [cols] = await dbPool.query('SHOW COLUMNS FROM panel_accounts');
+        hasStaffGrade = cols.some(c => (c.Field || c.field || '').toLowerCase() === 'staff_grade');
+      } catch (e) {}
+
+      let activeStaffCount = 0;
+      if (hasStaffGrade) {
+        const [stf] = await dbPool.query("SELECT COUNT(*) as count FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad' AND staff_grade != 'Fara Grad'");
+        activeStaffCount = stf[0].count;
+      } else {
+        const [stf] = await dbPool.query("SELECT COUNT(*) as count FROM panel_accounts WHERE site_rank = 'Admin Supreme'");
+        activeStaffCount = stf[0].count;
+      }
 
       stats.totalAccounts = totAcc[0].count;
-      stats.activeStaff = stf[0].count;
+      stats.activeStaff = activeStaffCount;
     } else {
       stats.totalAccounts = mockData.accounts.length;
-      stats.activeStaff = mockData.accounts.filter(u => u.staff_grade && u.staff_grade !== 'Fără Grad').length;
+      stats.activeStaff = mockData.accounts.filter(u => u.staff_grade && u.staff_grade !== 'Fără Grad' && u.staff_grade !== 'Fara Grad').length;
     }
 
     res.json({ stats });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare statistici.' });
+    res.status(500).json({ error: 'Eroare statistici: ' + err.message });
   }
 });
 
@@ -1342,14 +1356,24 @@ app.get('/api/applications/questions', async (req, res) => {
   try {
     let questions = [];
     if (!useMock) {
-      const [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE app_type = ? ORDER BY id ASC', [appType]);
-      questions = q;
+      let hasTable = false;
+      try {
+        const [tables] = await dbPool.query("SHOW TABLES LIKE 'panel_app_questions'");
+        hasTable = tables.length > 0;
+      } catch (e) {}
+
+      if (hasTable) {
+        const [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE app_type = ? ORDER BY id ASC', [appType]);
+        questions = q;
+      } else {
+        questions = [];
+      }
     } else {
       questions = mockData.questions.filter(q => q.app_type === appType);
     }
     res.json({ questions });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare întrebări.' });
+    res.status(500).json({ error: 'Eroare întrebări: ' + err.message });
   }
 });
 
@@ -1697,8 +1721,23 @@ app.get('/api/settings/users', authenticateToken, async (req, res) => {
   try {
     let users = [];
     if (!useMock) {
-      const [u] = await dbPool.query('SELECT id, username, user_id, email, site_rank, staff_grade FROM panel_accounts ORDER BY id DESC');
-      users = u;
+      let hasStaffGrade = false;
+      try {
+        const [cols] = await dbPool.query('SHOW COLUMNS FROM panel_accounts');
+        hasStaffGrade = cols.some(c => (c.Field || c.field || '').toLowerCase() === 'staff_grade');
+      } catch (e) {}
+
+      let sql = 'SELECT id, username, user_id, email, site_rank';
+      if (hasStaffGrade) {
+        sql += ', staff_grade';
+      }
+      sql += ' FROM panel_accounts ORDER BY id DESC';
+
+      const [u] = await dbPool.query(sql);
+      users = u.map(user => ({
+        ...user,
+        staff_grade: user.staff_grade || 'Fără Grad'
+      }));
     } else {
       users = mockData.accounts;
     }
@@ -1727,7 +1766,21 @@ app.post('/api/settings/update-staff-grade', authenticateToken, async (req, res)
   const { target_user_id, staff_grade } = req.body;
   try {
     if (!useMock) {
-      await dbPool.query('UPDATE panel_accounts SET staff_grade = ? WHERE user_id = ? OR id = ?', [staff_grade, target_user_id, target_user_id]);
+      try {
+        await dbPool.query('UPDATE panel_accounts SET staff_grade = ? WHERE user_id = ? OR id = ?', [staff_grade, target_user_id, target_user_id]);
+      } catch (updateErr) {
+        if (updateErr.message.includes('Unknown column') || updateErr.message.includes('unknown column')) {
+          console.log('staff_grade column missing, attempting auto-add...');
+          try {
+            await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
+            await dbPool.query('UPDATE panel_accounts SET staff_grade = ? WHERE user_id = ? OR id = ?', [staff_grade, target_user_id, target_user_id]);
+          } catch (alterErr) {
+            throw new Error(`Coloana staff_grade lipsește și nu a putut fi creată automat: ${alterErr.message}`);
+          }
+        } else {
+          throw updateErr;
+        }
+      }
     } else {
       const a = mockData.accounts.find(acc => acc.user_id === Number(target_user_id) || acc.id === Number(target_user_id));
       if (a) a.staff_grade = staff_grade;
@@ -1769,6 +1822,139 @@ app.get('/api/dashboard/activities', async (req, res) => {
     res.json({ activities });
   } catch (err) {
     res.status(500).json({ error: 'Eroare încărcare activități: ' + err.message });
+  }
+});
+
+app.get('/api/admin/run-migration-force', authenticateToken, async (req, res) => {
+  const isAdmin = req.user.adminLvl >= 6 || req.user.site_rank === 'Admin Supreme' || req.user.site_rank === 'Manager Panel';
+  if (!isAdmin) return res.status(403).json({ error: 'Acces interzis. Doar fondatorii/managerii pot repara baza de date.' });
+
+  try {
+    const results = [];
+    const runQuery = async (label, sql) => {
+      try {
+        await dbPool.query(sql);
+        results.push({ label, success: true });
+      } catch (err) {
+        results.push({ label, success: false, error: err.message });
+      }
+    };
+
+    // Create Tables
+    await runQuery('Table panel_accounts', `
+      CREATE TABLE IF NOT EXISTS panel_accounts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL DEFAULT 0,
+        username VARCHAR(100) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        site_rank VARCHAR(50) NOT NULL DEFAULT 'Member',
+        adminLvl INT NOT NULL DEFAULT 0,
+        is_verified TINYINT(1) NOT NULL DEFAULT 0,
+        verification_token VARCHAR(255),
+        reset_token VARCHAR(255),
+        reset_expires TIMESTAMP NULL,
+        warns INT NOT NULL DEFAULT 0,
+        is_banned TINYINT(1) NOT NULL DEFAULT 0,
+        is_muted TINYINT(1) NOT NULL DEFAULT 0,
+        temp_ban_expires TIMESTAMP NULL,
+        temp_mute_expires TIMESTAMP NULL,
+        staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_app_questions', `
+      CREATE TABLE IF NOT EXISTS panel_app_questions (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        app_type VARCHAR(100) NOT NULL,
+        question_text TEXT NOT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_app_status', `
+      CREATE TABLE IF NOT EXISTS panel_app_status (
+        app_type VARCHAR(100) PRIMARY KEY,
+        is_open TINYINT(1) NOT NULL DEFAULT 1
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_gallery', `
+      CREATE TABLE IF NOT EXISTS panel_gallery (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        uploader_id INT NOT NULL,
+        uploader_name VARCHAR(100) NOT NULL,
+        image_url TEXT NOT NULL,
+        description TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_rules', `
+      CREATE TABLE IF NOT EXISTS panel_rules (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        slug VARCHAR(50) UNIQUE NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        category VARCHAR(100) NOT NULL,
+        content LONGTEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_logs', `
+      CREATE TABLE IF NOT EXISTS panel_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        action_type VARCHAR(100) NOT NULL,
+        description TEXT NOT NULL,
+        target_id INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_forum_categories', `
+      CREATE TABLE IF NOT EXISTS panel_forum_categories (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        description VARCHAR(255)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_forum_topics', `
+      CREATE TABLE IF NOT EXISTS panel_forum_topics (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        category_id INT NOT NULL,
+        author_id INT NOT NULL,
+        author_name VARCHAR(100) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    await runQuery('Table panel_forum_posts', `
+      CREATE TABLE IF NOT EXISTS panel_forum_posts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        topic_id INT NOT NULL,
+        author_id INT NOT NULL,
+        author_name VARCHAR(100) NOT NULL,
+        content TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // Column Alters
+    await runQuery('Col site_rank', "ALTER TABLE panel_accounts ADD COLUMN site_rank VARCHAR(50) NOT NULL DEFAULT 'Member'");
+    await runQuery('Col adminLvl', "ALTER TABLE panel_accounts ADD COLUMN adminLvl INT NOT NULL DEFAULT 0");
+    await runQuery('Col is_banned', "ALTER TABLE panel_accounts ADD COLUMN is_banned TINYINT(1) NOT NULL DEFAULT 0");
+    await runQuery('Col is_muted', "ALTER TABLE panel_accounts ADD COLUMN is_muted TINYINT(1) NOT NULL DEFAULT 0");
+    await runQuery('Col warns', "ALTER TABLE panel_accounts ADD COLUMN warns INT NOT NULL DEFAULT 0");
+    await runQuery('Col user_id', "ALTER TABLE panel_accounts ADD COLUMN user_id INT NOT NULL DEFAULT 0");
+    await runQuery('Col staff_grade', "ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
+
+    res.json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ error: 'Eroare reparare: ' + err.message });
   }
 });
 
@@ -1877,15 +2063,25 @@ app.get('/api/staff-team', async (req, res) => {
   try {
     let staff = [];
     if (!useMock) {
-      const [rows] = await dbPool.query("SELECT id, username, staff_grade, avatar_url FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad'");
-      staff = rows.map(r => ({
-        member_name: r.username,
-        role: r.staff_grade,
-        avatar_url: r.avatar_url,
-        description: 'Membru al echipei administrative.'
-      }));
+      let hasStaffGrade = false;
+      try {
+        const [cols] = await dbPool.query('SHOW COLUMNS FROM panel_accounts');
+        hasStaffGrade = cols.some(c => (c.Field || c.field || '').toLowerCase() === 'staff_grade');
+      } catch (e) {}
+
+      if (hasStaffGrade) {
+        const [rows] = await dbPool.query("SELECT id, username, staff_grade, avatar_url FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad' AND staff_grade != 'Fara Grad'");
+        staff = rows.map(r => ({
+          member_name: r.username,
+          role: r.staff_grade,
+          avatar_url: r.avatar_url,
+          description: 'Membru al echipei administrative.'
+        }));
+      } else {
+        staff = [];
+      }
     } else {
-      const rows = mockData.accounts.filter(a => a.staff_grade && a.staff_grade !== 'Fără Grad');
+      const rows = mockData.accounts.filter(a => a.staff_grade && a.staff_grade !== 'Fără Grad' && a.staff_grade !== 'Fara Grad');
       staff = rows.map(r => ({
         member_name: r.username,
         role: r.staff_grade,

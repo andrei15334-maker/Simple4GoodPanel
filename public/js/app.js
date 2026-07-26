@@ -516,14 +516,16 @@ function handleLogout() {
 async function loadDashboardStats() {
   try {
     const res = await fetch('/api/dashboard/stats');
-    const data = await res.json();
-
-    document.getElementById('stat-total-acc').innerText = data.stats.totalAccounts.toLocaleString();
-    document.getElementById('stat-staff').innerText = data.stats.activeStaff;
+    const data = await safeParseResponse(res);
+    
+    if (data.stats) {
+      document.getElementById('stat-total-acc').innerText = data.stats.totalAccounts.toLocaleString();
+      document.getElementById('stat-staff').innerText = data.stats.activeStaff;
+    }
 
     // Load Latest News (just fetch /api/news and take first 3)
     const newsRes = await fetch('/api/news');
-    const newsData = await newsRes.json();
+    const newsData = await safeParseResponse(newsRes);
     const newsBox = document.getElementById('dashboard-latest-news');
     if (newsData.news && newsData.news.length > 0) {
       newsBox.innerHTML = newsData.news.slice(0, 3).map(n => `
@@ -540,7 +542,7 @@ async function loadDashboardStats() {
     loadDashboardActivities();
 
   } catch (err) {
-    console.error(err);
+    console.error('Error loading dashboard stats:', err);
   }
 }
 
@@ -2862,4 +2864,29 @@ function filterAdminUsers() {
       row.style.display = 'none';
     }
   });
+}
+
+async function adminForceDatabaseRepair() {
+  if (!confirm('Atenție: Această acțiune va încerca să repare/creeze toate tabelele și coloanele lipsă din baza ta de date. Continuăm?')) return;
+  
+  showToast('Se rulează repararea bazei de date...', 'info');
+  try {
+    const res = await fetch('/api/admin/run-migration-force', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    const data = await safeParseResponse(res);
+    if (!res.ok) throw new Error(data.error);
+
+    let summary = 'Rezultate Autoreparare:\n';
+    data.results.forEach(r => {
+      summary += `${r.label}: ${r.success ? 'SUCCES' : 'EȘUAT (' + r.error + ')'}\n`;
+    });
+    alert(summary);
+    showToast('Repararea bazei de date s-a încheiat!', 'success');
+    
+    if (typeof loadDashboardStats === 'function') loadDashboardStats();
+    if (typeof loadAdminStaffManager === 'function') loadAdminStaffManager();
+  } catch (err) {
+    showToast('Eroare: ' + err.message, 'error');
+  }
 }
