@@ -317,6 +317,7 @@ async function initDB() {
       await dbPool.query('INSERT IGNORE INTO panel_app_status (app_type, is_open) VALUES (?, 1)', [appType]);
     }
 
+    await runMigrations();
     await seedDefaultRules();
     await seedDefaultQuestions();
 
@@ -376,6 +377,40 @@ async function seedDefaultQuestions() {
     }
   } catch (err) {
     console.error('Error seeding questions:', err);
+  }
+}
+
+async function runMigrations() {
+  if (useMock) return;
+  console.log('Running database migrations...');
+  try {
+    const [accountsCols] = await dbPool.query('SHOW COLUMNS FROM panel_accounts');
+    const cols = accountsCols.map(c => c.Field);
+    
+    if (!cols.includes('site_rank')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN site_rank VARCHAR(50) NOT NULL DEFAULT 'Member'");
+    }
+    if (!cols.includes('adminLvl')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN adminLvl INT NOT NULL DEFAULT 0");
+    }
+    if (!cols.includes('is_banned')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN is_banned TINYINT(1) NOT NULL DEFAULT 0");
+    }
+    if (!cols.includes('is_muted')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN is_muted TINYINT(1) NOT NULL DEFAULT 0");
+    }
+    if (!cols.includes('warns')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN warns INT NOT NULL DEFAULT 0");
+    }
+    if (!cols.includes('user_id')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN user_id INT NOT NULL DEFAULT 0");
+    }
+    if (!cols.includes('staff_grade')) {
+      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
+    }
+    console.log('Database migrations completed successfully!');
+  } catch (err) {
+    console.error('Database migration failed:', err.message);
   }
 }
 
@@ -1140,6 +1175,26 @@ app.post('/api/factions/delete', authenticateToken, async (req, res) => {
   }
 });
 
+app.post('/api/factions/rename', authenticateToken, async (req, res) => {
+  const { old_name, new_name } = req.body;
+  if (!old_name || !new_name) return res.status(400).json({ error: 'Numele vechi și noul nume sunt obligatorii!' });
+
+  const isSupreme = req.user.site_rank === 'Admin Supreme' || req.user.adminLvl >= 6;
+  if (!isSupreme) return res.status(403).json({ error: 'Acces interzis.' });
+
+  try {
+    if (!useMock) {
+      await dbPool.query('UPDATE panel_factions SET faction_name = ? WHERE faction_name = ?', [new_name, old_name]);
+    } else {
+      const f = mockData.factions.find(x => x.faction_name === old_name);
+      if (f) f.faction_name = new_name;
+    }
+    res.json({ success: true, message: `Facțiunea a fost redenumită din ${old_name} în ${new_name}!` });
+  } catch (err) {
+    res.status(500).json({ error: 'Eroare redenumire facțiune: ' + err.message });
+  }
+});
+
 // FACTION MEMBERS POPUP API
 app.get('/api/factions/members', async (req, res) => {
   const factionName = req.query.faction || '';
@@ -1226,6 +1281,10 @@ app.post('/api/applications', authenticateToken, async (req, res) => {
         'INSERT INTO panel_applications (user_id, app_type, name_rp, age, answers) VALUES (?, ?, ?, ?, ?)',
         [req.user.user_id, app_type, name_rp, age, JSON.stringify(answers)]
       );
+      await dbPool.query(
+        'INSERT INTO panel_logs (user_id, action_type, description) VALUES (?, ?, ?)',
+        [req.user.id, 'APPLICATION_SUBMIT', `${req.user.username} a trimis o aplicație pentru ${app_type}.`]
+      );
     } else {
       mockData.applications.push({ id: mockData.applications.length + 1, user_id: req.user.user_id, app_type, name_rp, age, answers, status: 'In Asteptare' });
     }
@@ -1241,9 +1300,14 @@ app.get('/api/admin/applications', authenticateToken, async (req, res) => {
     if (!useMock) {
       const [roleRows] = await dbPool.query('SELECT permissions FROM panel_roles WHERE name = ?', [user.site_rank]);
       let perms = [];
-      if (roleRows.length > 0) {
-        perms = typeof roleRows[0].permissions === 'string' ? JSON.parse(roleRows[0].permissions) : roleRows[0].permissions;
+      if (roleRows.length > 0 && roleRows[0].permissions) {
+        try {
+          perms = typeof roleRows[0].permissions === 'string' ? JSON.parse(roleRows[0].permissions) : roleRows[0].permissions;
+        } catch (e) {
+          perms = [];
+        }
       }
+      if (!Array.isArray(perms)) perms = [];
 
       let allowedTypes = [];
       if (perms.includes('full_access') || user.site_rank === 'Admin Supreme' || user.site_rank === 'Manager Panel' || user.adminLvl >= 7) {
@@ -1258,11 +1322,11 @@ app.get('/api/admin/applications', authenticateToken, async (req, res) => {
 
       if (allowedTypes.length === 0) return res.json({ applications: [] });
 
-      let query = 'SELECT a.*, u.username FROM panel_applications a JOIN panel_accounts u ON a.user_id = u.id ORDER BY a.id DESC';
+      let query = 'SELECT a.id, a.user_id, a.app_type, a.name_rp, a.age, a.answers, a.status, a.created_at, u.username FROM panel_applications a JOIN panel_accounts u ON a.user_id = u.id OR a.user_id = u.user_id ORDER BY a.id DESC';
       let params = [];
 
       if (!allowedTypes.includes('ALL')) {
-        query = 'SELECT a.*, u.username FROM panel_applications a JOIN panel_accounts u ON a.user_id = u.id WHERE a.app_type IN (?) ORDER BY a.id DESC';
+        query = 'SELECT a.id, a.user_id, a.app_type, a.name_rp, a.age, a.answers, a.status, a.created_at, u.username FROM panel_applications a JOIN panel_accounts u ON a.user_id = u.id OR a.user_id = u.user_id WHERE a.app_type IN (?) ORDER BY a.id DESC';
         params = [allowedTypes];
       }
 
@@ -1278,14 +1342,14 @@ app.get('/api/admin/applications', authenticateToken, async (req, res) => {
       }
       
       const enrichedApps = visibleApps.map(a => {
-        const u = mockData.accounts.find(acc => acc.id == a.user_id) || {};
+        const u = mockData.accounts.find(acc => acc.id == a.user_id || acc.user_id == a.user_id) || {};
         return { ...a, username: u.username };
       });
       
       return res.json({ applications: enrichedApps });
     }
   } catch (err) {
-    return res.status(500).json({ error: 'Eroare citire aplicatii.' });
+    return res.status(500).json({ error: 'Eroare citire aplicații: ' + err.message });
   }
 });
 
@@ -1503,14 +1567,14 @@ app.get('/api/settings/users', authenticateToken, async (req, res) => {
   try {
     let users = [];
     if (!useMock) {
-      const [u] = await dbPool.query('SELECT id, username, user_id, email, site_rank FROM panel_accounts ORDER BY id DESC');
+      const [u] = await dbPool.query('SELECT id, username, user_id, email, site_rank, staff_grade FROM panel_accounts ORDER BY id DESC');
       users = u;
     } else {
       users = mockData.accounts;
     }
     res.json({ users });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare setari.' });
+    res.status(500).json({ error: 'Eroare setări: ' + err.message });
   }
 });
 
@@ -1526,6 +1590,55 @@ app.post('/api/settings/update-user-rank', authenticateToken, async (req, res) =
     res.json({ success: true, message: `Grad actualizat în: ${site_rank}` });
   } catch (err) {
     res.status(500).json({ error: 'Eroare salvare grad.' });
+  }
+});
+
+app.post('/api/settings/update-staff-grade', authenticateToken, async (req, res) => {
+  const { target_user_id, staff_grade } = req.body;
+  try {
+    if (!useMock) {
+      await dbPool.query('UPDATE panel_accounts SET staff_grade = ? WHERE user_id = ? OR id = ?', [staff_grade, target_user_id, target_user_id]);
+    } else {
+      const a = mockData.accounts.find(acc => acc.user_id === Number(target_user_id) || acc.id === Number(target_user_id));
+      if (a) a.staff_grade = staff_grade;
+    }
+    res.json({ success: true, message: `Grad staff actualizat în: ${staff_grade}` });
+  } catch (err) {
+    res.status(500).json({ error: 'Eroare salvare grad staff: ' + err.message });
+  }
+});
+
+app.get('/api/dashboard/activities', async (req, res) => {
+  try {
+    let activities = [];
+    if (!useMock) {
+      const [rows] = await dbPool.query(`
+        SELECT l.id, l.user_id, l.action_type, l.description, l.created_at, a.username 
+        FROM panel_logs l
+        LEFT JOIN panel_accounts a ON l.user_id = a.id OR l.user_id = a.user_id
+        ORDER BY l.id DESC 
+        LIMIT 15
+      `);
+      activities = rows.map(r => ({
+        id: r.id,
+        username: r.username || 'Sistem',
+        action_type: r.action_type,
+        description: r.description,
+        created_at: r.created_at
+      }));
+    } else {
+      const logs = mockData.adminLogs || [];
+      activities = logs.slice(0, 15).map(l => ({
+        id: l.id,
+        username: l.admin_name || 'Staff',
+        action_type: l.action,
+        description: l.reason,
+        created_at: l.created_at
+      }));
+    }
+    res.json({ activities });
+  } catch (err) {
+    res.status(500).json({ error: 'Eroare încărcare activități: ' + err.message });
   }
 });
 
@@ -1563,23 +1676,6 @@ app.post('/api/news', authenticateToken, async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Eroare adaugare noutate.' });
   }
-});
-
-app.delete('/api/news/:id', authenticateToken, async (req, res) => {
-  const user = req.user;
-  // Permitem ștergerea doar pentru admini
-  if (user.adminLvl < 1 && user.site_rank !== 'Admin Supreme' && user.site_rank !== 'Manager') {
-    return res.status(403).json({ error: 'Acces interzis! Nu ești administrator.' });
-  }
-  
-  const { id } = req.params;
-  if (useMock) {
-    const idx = mockData.news.findIndex(x => x.id == id);
-    if (idx === -1) return res.status(404).json({ error: 'Noutatea nu a fost găsită.' });
-    mockData.news.splice(idx, 1);
-    return res.json({ message: 'Noutatea a fost ștearsă cu succes.' });
-  }
-  // TODO DB Implementation
 });
 
 // FORUM API - CATEGORIES
@@ -1651,14 +1747,47 @@ app.get('/api/staff-team', async (req, res) => {
   try {
     let staff = [];
     if (!useMock) {
-      const [s] = await dbPool.query('SELECT * FROM panel_staff_team ORDER BY display_order ASC, id ASC');
-      staff = s;
+      const [rows] = await dbPool.query("SELECT id, username, staff_grade, avatar_url FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad'");
+      staff = rows.map(r => ({
+        member_name: r.username,
+        role: r.staff_grade,
+        avatar_url: r.avatar_url,
+        description: 'Membru al echipei administrative.'
+      }));
     } else {
-      staff = mockData.staff_team;
+      const rows = mockData.accounts.filter(a => a.staff_grade && a.staff_grade !== 'Fără Grad');
+      staff = rows.map(r => ({
+        member_name: r.username,
+        role: r.staff_grade,
+        avatar_url: r.avatar_url,
+        description: 'Membru al echipei administrative.'
+      }));
     }
+
+    const order = [
+      'Fondator',
+      'Co-Fondator',
+      'Community Manager',
+      'General Admin',
+      'Supervizor',
+      'Head Of Admin',
+      'Administrator',
+      'Moderator',
+      'Helper',
+      'Trial helper'
+    ];
+    
+    staff.sort((a, b) => {
+      let idxA = order.indexOf(a.role);
+      let idxB = order.indexOf(b.role);
+      if (idxA === -1) idxA = 999;
+      if (idxB === -1) idxB = 999;
+      return idxA - idxB;
+    });
+
     res.json({ staff });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare staff team.' });
+    res.status(500).json({ error: 'Eroare staff team: ' + err.message });
   }
 });
 
@@ -1731,12 +1860,13 @@ app.post('/api/gallery', authenticateToken, upload.single('image'), async (req, 
   try {
     if (!useMock) {
       await dbPool.query('INSERT INTO panel_gallery (uploader_id, uploader_name, image_url, description) VALUES (?, ?, ?, ?)', [req.user.user_id, req.user.username, image_url, description]);
+      await dbPool.query('INSERT INTO panel_logs (user_id, action_type, description) VALUES (?, ?, ?)', [req.user.id, 'GALLERY_UPLOAD', `${req.user.username} a încărcat o imagine în galerie.`]);
     } else {
       mockData.gallery.unshift({ id: mockData.gallery.length + 1, uploader_id: req.user.user_id, uploader_name: req.user.username, image_url, description, created_at: new Date() });
     }
     res.json({ success: true, image_url });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare adaugare poza.' });
+    res.status(500).json({ error: 'Eroare adăugare poză: ' + err.message });
   }
 });
 
@@ -1754,7 +1884,7 @@ app.post('/api/admin/sanction', authenticateToken, async (req, res) => {
       } else if (type === 'mute') {
         await dbPool.query('UPDATE panel_accounts SET is_muted = 1 WHERE id = ?', [target_id]);
       }
-      await dbPool.query('INSERT INTO panel_admin_logs (admin_name, target_id, action, reason) VALUES (?, ?, ?, ?)', [req.user.username, target_id, type.toUpperCase(), reason || 'Sanctiune standard']);
+      await dbPool.query('INSERT INTO panel_logs (user_id, action_type, description, target_id) VALUES (?, ?, ?, ?)', [req.user.id, type.toUpperCase(), reason || 'Sanctiune standard', target_id]);
     } else {
       const acc = mockData.accounts.find(a => a.id === target_id);
       if (acc) {
@@ -1792,7 +1922,7 @@ app.post('/api/admin/advanced-sanction', authenticateToken, async (req, res) => 
       } else if (action === 'delete_account') {
         await dbPool.query('DELETE FROM panel_accounts WHERE id = ?', [target_id]);
       }
-      await dbPool.query('INSERT INTO panel_admin_logs (admin_name, target_id, action, reason) VALUES (?, ?, ?, ?)', [req.user.username, target_id, `ADVANCED_${action.toUpperCase()}`, `Valoare: ${value || 'N/A'}`]);
+      await dbPool.query('INSERT INTO panel_logs (user_id, action_type, description, target_id) VALUES (?, ?, ?, ?)', [req.user.id, `ADVANCED_${action.toUpperCase()}`, `Valoare: ${value || 'N/A'}`, target_id]);
     } else {
       const acc = mockData.accounts.find(a => a.id === target_id);
       if (acc) {

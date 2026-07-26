@@ -527,8 +527,64 @@ async function loadDashboardStats() {
       newsBox.innerHTML = `<div style="color: var(--x-text-muted);">Momentan nu există noutăți.</div>`;
     }
 
+    loadDashboardActivities();
+
   } catch (err) {
     console.error(err);
+  }
+}
+
+async function loadDashboardActivities() {
+  const container = document.getElementById('dashboard-activities-list');
+  if (!container) return;
+  try {
+    const res = await fetch('/api/dashboard/activities');
+    const data = await res.json();
+    if (!data.activities || data.activities.length === 0) {
+      container.innerHTML = '<div style="color: var(--x-text-muted); text-align: center; padding: 1rem;">Nicio activitate recentă.</div>';
+      return;
+    }
+    
+    container.innerHTML = data.activities.map(act => {
+      let color = 'var(--x-cyan)';
+      let icon = 'fa-solid fa-circle-info';
+
+      if (act.action_type === 'APPLICATION_SUBMIT') {
+        color = 'var(--x-gold)';
+        icon = 'fa-solid fa-file-signature';
+      } else if (act.action_type.includes('BAN')) {
+        color = '#ef4444';
+        icon = 'fa-solid fa-ban';
+      } else if (act.action_type.includes('MUTE')) {
+        color = '#f59e0b';
+        icon = 'fa-solid fa-microphone-slash';
+      } else if (act.action_type.includes('WARN')) {
+        color = '#e11d48';
+        icon = 'fa-solid fa-triangle-exclamation';
+      } else if (act.action_type === 'GALLERY_UPLOAD') {
+        color = '#10b981';
+        icon = 'fa-solid fa-image';
+      }
+
+      const dateStr = new Date(act.created_at).toLocaleString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' });
+
+      return `
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid ${color}; border-radius: 4px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='rgba(255,255,255,0.02)'">
+          <div style="display: flex; align-items: center; gap: 0.8rem;">
+            <i class="${icon}" style="color: ${color}; font-size: 1rem;"></i>
+            <div>
+              <span style="color: white; font-weight: 700;">${act.username}</span>:
+              <span style="color: var(--x-text-body); font-size: 0.9rem;">${act.description}</span>
+            </div>
+          </div>
+          <div style="color: var(--x-text-muted); font-size: 0.75rem; white-space: nowrap; font-weight: 500;">
+            ${dateStr}
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    container.innerHTML = `<div style="color: var(--x-danger); text-align: center; padding: 1rem;">Eroare: ${err.message}</div>`;
   }
 }
 
@@ -1079,7 +1135,7 @@ async function loadFactionsData() {
         const name = (f.faction || f.faction_name).toLowerCase();
         return name.includes('politi') || name.includes('lspd') || name.includes('smurd') || name.includes('medic') || name.includes('mecanic') || f.faction_type === 'legale';
       });
-      if (filtered.length === 0) {
+      if (filtered.length === 0 && useMock) {
         filtered = [
           { faction: 'Departament Poliție (LSPD)', count: 2 },
           { faction: 'Serviciul SMURD / Medic', count: 0 },
@@ -1091,7 +1147,7 @@ async function loadFactionsData() {
         const name = (f.faction || f.faction_name).toLowerCase();
         return !name.includes('politi') && !name.includes('lspd') && !name.includes('smurd') && !name.includes('medic') && !name.includes('mecanic') && f.faction_type !== 'legale';
       });
-      if (filtered.length === 0) {
+      if (filtered.length === 0 && useMock) {
         filtered = [
           { faction: 'Mafia Ballas', count: 2 },
           { faction: 'Mafia Los Vagos', count: 0 },
@@ -1155,24 +1211,44 @@ async function loadFactionsData() {
               ${iconHTML}
             </div>
             ${isSupreme ? `
-              <button 
-                onclick="adminDeleteFaction('${fName}')"
-                style="
-                  background: rgba(239, 68, 68, 0.1); 
-                  border: 1px solid rgba(239, 68, 68, 0.2); 
-                  color: #ef4444; 
-                  width: 32px; height: 32px; 
-                  border-radius: 8px; 
-                  display: flex; align-items: center; justify-content: center; 
-                  cursor: pointer; 
-                  transition: all 0.2s;
-                "
-                onmouseover="this.style.background='#ef4444'; this.style.color='white';"
-                onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';"
-                title="Șterge"
-              >
-                <i class="fa-solid fa-trash" style="font-size: 0.85rem;"></i>
-              </button>
+              <div style="display: flex; gap: 0.4rem;">
+                <button 
+                  onclick="adminRenameFaction('${fName}')"
+                  style="
+                    background: rgba(245, 158, 11, 0.1); 
+                    border: 1px solid rgba(245, 158, 11, 0.2); 
+                    color: #f59e0b; 
+                    width: 32px; height: 32px; 
+                    border-radius: 8px; 
+                    display: flex; align-items: center; justify-content: center; 
+                    cursor: pointer; 
+                    transition: all 0.2s;
+                  "
+                  onmouseover="this.style.background='#f59e0b'; this.style.color='white';"
+                  onmouseout="this.style.background='rgba(245, 158, 11, 0.1)'; this.style.color='#f59e0b';"
+                  title="Redenumește"
+                >
+                  <i class="fa-solid fa-pen" style="font-size: 0.85rem;"></i>
+                </button>
+                <button 
+                  onclick="adminDeleteFaction('${fName}')"
+                  style="
+                    background: rgba(239, 68, 68, 0.1); 
+                    border: 1px solid rgba(239, 68, 68, 0.2); 
+                    color: #ef4444; 
+                    width: 32px; height: 32px; 
+                    border-radius: 8px; 
+                    display: flex; align-items: center; justify-content: center; 
+                    cursor: pointer; 
+                    transition: all 0.2s;
+                  "
+                  onmouseover="this.style.background='#ef4444'; this.style.color='white';"
+                  onmouseout="this.style.background='rgba(239, 68, 68, 0.1)'; this.style.color='#ef4444';"
+                  title="Șterge"
+                >
+                  <i class="fa-solid fa-trash" style="font-size: 0.85rem;"></i>
+                </button>
+              </div>
             ` : ''}
           </div>
 
@@ -1232,6 +1308,26 @@ async function adminDeleteFaction(factionName) {
     showToast(data.message, 'success');
     loadFactionsData();
 
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function adminRenameFaction(factionName) {
+  const newName = prompt(`Introdu noul nume pentru facțiunea "${factionName}":`, factionName);
+  if (!newName || newName.trim() === '' || newName === factionName) return;
+
+  try {
+    const res = await fetch('/api/factions/rename', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ old_name: factionName, new_name: newName.trim() })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    showToast(data.message, 'success');
+    loadFactionsData();
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -2592,18 +2688,20 @@ async function deleteGalleryImage(id) {
 }
 
 async function deleteNews(id) {
-  if (!confirm('Ești sigur că vrei să ștergi această noutate?')) return;
-  try {
-    const res = await fetch(`/api/news/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!res.ok) throw new Error('Eroare ștergere.');
-    showToast('Noutatea a fost ștearsă.', 'success');
-    loadNews();
-  } catch(err) {
-    showToast(err.message, 'error');
-  }
+  showConfirmDialog('Ești sigur că vrei să ștergi această noutate?', async () => {
+    try {
+      const res = await fetch(`/api/news/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Eroare ștergere.');
+      showToast('Noutatea a fost ștearsă.', 'success');
+      loadNews();
+    } catch(err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 async function deleteForumTopic(id, catId, catTitle) {
@@ -2645,13 +2743,27 @@ async function loadAdminStaffManager() {
     });
     const data = await res.json();
     if (!data.staff || data.staff.length === 0) {
-      container.innerHTML = '<div style="padding: 1rem; color: var(--x-text-muted);">Niciun membru staff găsit.</div>';
+      container.innerHTML = '<tr><td colspan="6" style="padding: 1rem; color: var(--x-text-muted); text-align: center;">Niciun membru staff găsit.</td></tr>';
       return;
     }
     
     const rolesRes = await fetch('/api/admin/roles', { headers: { 'Authorization': `Bearer ${token}` } });
     const rolesData = await rolesRes.json();
     const roles = rolesData.roles || [];
+
+    const staffGrades = [
+      'Fără Grad',
+      'Fondator',
+      'Co-Fondator',
+      'Community Manager',
+      'General Admin',
+      'Supervizor',
+      'Head Of Admin',
+      'Administrator',
+      'Moderator',
+      'Helper',
+      'Trial helper'
+    ];
 
     let html = data.staff.map(u => `
       <tr>
@@ -2665,25 +2777,47 @@ async function loadAdminStaffManager() {
             <option value="Manager Panel" ${u.site_rank === 'Manager Panel' ? 'selected' : ''}>Manager Panel</option>
           </select>
         </td>
+        <td>
+          <select class="form-input" style="padding: 0.3rem; font-size: 0.85rem;" onchange="updateUserStaffGrade(${u.id}, this.value)">
+            ${staffGrades.map(g => `<option value="${g}" ${u.staff_grade === g ? 'selected' : ''}>${g}</option>`).join('')}
+          </select>
+        </td>
         <td style="color: var(--x-cyan);">${u.faction || '-'}</td>
         <td style="text-align: right;"><button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.8rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="openAdvancedSanctions(${u.id})"><i class="fa-solid fa-gavel"></i> Acțiuni</button></td>
       </tr>
     `).join('');
     container.innerHTML = html;
   } catch (err) {
-    container.innerHTML = `<div style="padding: 1rem; color: var(--x-danger);">Eroare: ${err.message}</div>`;
+    container.innerHTML = `<tr><td colspan="6" style="padding: 1rem; color: var(--x-danger); text-align: center;">Eroare: ${err.message}</td></tr>`;
+  }
+}
+
+async function updateUserStaffGrade(userId, staffGrade) {
+  try {
+    const res = await fetch('/api/settings/update-staff-grade', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ target_user_id: userId, staff_grade: staffGrade })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    showToast(data.message, 'success');
+  } catch(err) {
+    showToast(err.message, 'error');
   }
 }
 
 function openAdvancedSanctions(id) {
   document.getElementById('sanction-target-id').value = id;
   document.getElementById('sanction-duration-hours').value = '';
+  document.getElementById('sanction-reason').value = '';
   openModal('modal-advanced-sanctions');
 }
 
 async function submitAdvancedSanction(action) {
   const targetId = document.getElementById('sanction-target-id').value;
   const value = document.getElementById('sanction-duration-hours').value;
+  const reason = document.getElementById('sanction-reason').value;
 
   if ((action === 'temp_ban' || action === 'temp_mute') && !value) {
     showToast('Te rog introdu numărul de ore pentru suspendare.', 'error');
@@ -2695,7 +2829,7 @@ async function submitAdvancedSanction(action) {
       const res = await fetch('/api/admin/advanced-sanction', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({ target_id: targetId, action, value })
+        body: JSON.stringify({ target_id: targetId, action, value, reason })
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Eroare sancționare.');
