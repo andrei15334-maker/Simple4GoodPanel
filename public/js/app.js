@@ -44,6 +44,16 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
+// HELPER TO SAFELY PARSE JSON FROM FETCH RESPONSES
+async function safeParseResponse(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    throw new Error(`Eroare de la server (Status ${res.status}): ${text.substring(0, 80) || 'Răspuns gol'}`);
+  }
+}
+
 // CUSTOM FLOATING TOAST NOTIFICATION SYSTEM
 function showToast(message, type = 'error') {
   let container = document.getElementById('s4g-toast-container');
@@ -1464,7 +1474,7 @@ async function adminAddNewQuestion() {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ app_type: currentAppCategory, question_text: text })
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     if (!res.ok) throw new Error(data.error);
 
     document.getElementById('admin-new-question-input').value = '';
@@ -2102,12 +2112,11 @@ async function submitForumTopic(e) {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
       body: JSON.stringify({ category_id: catId, title, content })
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     if (!res.ok) throw new Error(data.error);
     
     showToast('Subiect creat cu succes!', 'success');
     closeModal('modal-add-topic');
-    // For simplicity, we just reload the main forum categories view, or we could reload the category.
     loadForum();
   } catch (err) {
     showToast(err.message, 'error');
@@ -2175,7 +2184,7 @@ async function submitGallery(e) {
       headers: { 'Authorization': `Bearer ${token}` },
       body: formData
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     if (!res.ok) throw new Error(data.error);
     showToast('Poză adăugată cu succes!', 'success');
     closeModal('modal-add-gallery');

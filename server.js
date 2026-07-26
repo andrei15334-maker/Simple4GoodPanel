@@ -383,35 +383,149 @@ async function seedDefaultQuestions() {
 async function runMigrations() {
   if (useMock) return;
   console.log('Running database migrations...');
-  try {
-    const [accountsCols] = await dbPool.query('SHOW COLUMNS FROM panel_accounts');
-    const cols = accountsCols.map(c => c.Field);
-    
-    if (!cols.includes('site_rank')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN site_rank VARCHAR(50) NOT NULL DEFAULT 'Member'");
+  
+  const createTableSafe = async (tableName, sql) => {
+    try {
+      await dbPool.query(sql);
+      console.log(`Table ${tableName} verified/created.`);
+    } catch (err) {
+      console.warn(`Could not verify/create table ${tableName}:`, err.message);
     }
-    if (!cols.includes('adminLvl')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN adminLvl INT NOT NULL DEFAULT 0");
+  };
+
+  // 1. panel_accounts
+  await createTableSafe('panel_accounts', `
+    CREATE TABLE IF NOT EXISTS panel_accounts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL DEFAULT 0,
+      username VARCHAR(100) UNIQUE NOT NULL,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      site_rank VARCHAR(50) NOT NULL DEFAULT 'Member',
+      adminLvl INT NOT NULL DEFAULT 0,
+      is_verified TINYINT(1) NOT NULL DEFAULT 0,
+      verification_token VARCHAR(255),
+      reset_token VARCHAR(255),
+      reset_expires TIMESTAMP NULL,
+      warns INT NOT NULL DEFAULT 0,
+      is_banned TINYINT(1) NOT NULL DEFAULT 0,
+      is_muted TINYINT(1) NOT NULL DEFAULT 0,
+      temp_ban_expires TIMESTAMP NULL,
+      temp_mute_expires TIMESTAMP NULL,
+      staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 2. panel_app_questions
+  await createTableSafe('panel_app_questions', `
+    CREATE TABLE IF NOT EXISTS panel_app_questions (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      app_type VARCHAR(100) NOT NULL,
+      question_text TEXT NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 3. panel_app_status
+  await createTableSafe('panel_app_status', `
+    CREATE TABLE IF NOT EXISTS panel_app_status (
+      app_type VARCHAR(100) PRIMARY KEY,
+      is_open TINYINT(1) NOT NULL DEFAULT 1
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 4. panel_gallery
+  await createTableSafe('panel_gallery', `
+    CREATE TABLE IF NOT EXISTS panel_gallery (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      uploader_id INT NOT NULL,
+      uploader_name VARCHAR(100) NOT NULL,
+      image_url TEXT NOT NULL,
+      description TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 5. panel_rules
+  await createTableSafe('panel_rules', `
+    CREATE TABLE IF NOT EXISTS panel_rules (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      slug VARCHAR(50) UNIQUE NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      category VARCHAR(100) NOT NULL,
+      content LONGTEXT NOT NULL,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 6. panel_logs
+  await createTableSafe('panel_logs', `
+    CREATE TABLE IF NOT EXISTS panel_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT NOT NULL,
+      action_type VARCHAR(100) NOT NULL,
+      description TEXT NOT NULL,
+      target_id INT DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 7. panel_forum_categories
+  await createTableSafe('panel_forum_categories', `
+    CREATE TABLE IF NOT EXISTS panel_forum_categories (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) UNIQUE NOT NULL,
+      description VARCHAR(255)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 8. panel_forum_topics
+  await createTableSafe('panel_forum_topics', `
+    CREATE TABLE IF NOT EXISTS panel_forum_topics (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      category_id INT NOT NULL,
+      author_id INT NOT NULL,
+      author_name VARCHAR(100) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  // 9. panel_forum_posts
+  await createTableSafe('panel_forum_posts', `
+    CREATE TABLE IF NOT EXISTS panel_forum_posts (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      topic_id INT NOT NULL,
+      author_id INT NOT NULL,
+      author_name VARCHAR(100) NOT NULL,
+      content TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  const checkAndAddColumn = async (tableName, columnName, alterQuery) => {
+    try {
+      const [colsRows] = await dbPool.query(`SHOW COLUMNS FROM ${tableName}`);
+      const cols = colsRows.map(c => (c.Field || c.field || c.column_name || '').toLowerCase());
+      if (!cols.includes(columnName.toLowerCase())) {
+        console.log(`Adding missing column ${columnName} to ${tableName}...`);
+        await dbPool.query(alterQuery);
+      }
+    } catch (colErr) {
+      console.warn(`Could not check or add column ${columnName} to ${tableName}:`, colErr.message);
     }
-    if (!cols.includes('is_banned')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN is_banned TINYINT(1) NOT NULL DEFAULT 0");
-    }
-    if (!cols.includes('is_muted')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN is_muted TINYINT(1) NOT NULL DEFAULT 0");
-    }
-    if (!cols.includes('warns')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN warns INT NOT NULL DEFAULT 0");
-    }
-    if (!cols.includes('user_id')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN user_id INT NOT NULL DEFAULT 0");
-    }
-    if (!cols.includes('staff_grade')) {
-      await dbPool.query("ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
-    }
-    console.log('Database migrations completed successfully!');
-  } catch (err) {
-    console.error('Database migration failed:', err.message);
-  }
+  };
+
+  await checkAndAddColumn('panel_accounts', 'site_rank', "ALTER TABLE panel_accounts ADD COLUMN site_rank VARCHAR(50) NOT NULL DEFAULT 'Member'");
+  await checkAndAddColumn('panel_accounts', 'adminLvl', "ALTER TABLE panel_accounts ADD COLUMN adminLvl INT NOT NULL DEFAULT 0");
+  await checkAndAddColumn('panel_accounts', 'is_banned', "ALTER TABLE panel_accounts ADD COLUMN is_banned TINYINT(1) NOT NULL DEFAULT 0");
+  await checkAndAddColumn('panel_accounts', 'is_muted', "ALTER TABLE panel_accounts ADD COLUMN is_muted TINYINT(1) NOT NULL DEFAULT 0");
+  await checkAndAddColumn('panel_accounts', 'warns', "ALTER TABLE panel_accounts ADD COLUMN warns INT NOT NULL DEFAULT 0");
+  await checkAndAddColumn('panel_accounts', 'user_id', "ALTER TABLE panel_accounts ADD COLUMN user_id INT NOT NULL DEFAULT 0");
+  await checkAndAddColumn('panel_accounts', 'staff_grade', "ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
+  
+  console.log('Database migrations completed successfully!');
 }
 
 let mockData = {};
@@ -523,6 +637,9 @@ function authenticateToken(req, res, next) {
   jwt.verify(token, JWT_SECRET, (err, user) => {
     if (err) return res.status(403).json({ error: 'Sesiune expirată.' });
     req.user = user;
+    if (req.user && !req.user.user_id) {
+      req.user.user_id = req.user.id;
+    }
     next();
   });
 }
@@ -702,13 +819,13 @@ app.get('/api/dashboard/stats', async (req, res) => {
 
     if (!useMock) {
       const [totAcc] = await dbPool.query('SELECT COUNT(*) as count FROM panel_accounts');
-      const [stf] = await dbPool.query('SELECT COUNT(*) as count FROM panel_accounts WHERE site_rank = "Admin Supreme"');
+      const [stf] = await dbPool.query("SELECT COUNT(*) as count FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad'");
 
       stats.totalAccounts = totAcc[0].count;
       stats.activeStaff = stf[0].count;
     } else {
       stats.totalAccounts = mockData.accounts.length;
-      stats.activeStaff = mockData.accounts.filter(u => u.site_rank === 'Admin Supreme').length;
+      stats.activeStaff = mockData.accounts.filter(u => u.staff_grade && u.staff_grade !== 'Fără Grad').length;
     }
 
     res.json({ stats });
@@ -1386,6 +1503,19 @@ app.post('/api/applications/:id/action', authenticateToken, async (req, res) => 
       const newStatus = action === 'accept' ? 'Acceptat' : 'Respins';
       await dbPool.query('UPDATE panel_applications SET status = ? WHERE id = ?', [newStatus, id]);
       
+      try {
+        const [userRows] = await dbPool.query('SELECT username FROM panel_accounts WHERE id = ? OR user_id = ?', [app.user_id, app.user_id]);
+        const applicantName = userRows.length > 0 ? userRows[0].username : 'Jucător';
+        const actionType = action === 'accept' ? 'APPLICATION_ACCEPT' : 'APPLICATION_REJECT';
+        const actionVerb = action === 'accept' ? 'acceptat' : 'respins';
+        await dbPool.query(
+          'INSERT INTO panel_logs (user_id, action_type, description, target_id) VALUES (?, ?, ?, ?)',
+          [user.id, actionType, `${user.username} a ${actionVerb} aplicația lui ${applicantName} pentru ${app.app_type}.`, app.user_id]
+        );
+      } catch (logErr) {
+        console.warn('Failed to log application action:', logErr.message);
+      }
+
       return res.json({ success: true, message: `Aplicația a fost ${newStatus.toLowerCase()}.` });
     } else {
       const app = mockData.applications.find(a => a.id == id);
@@ -1829,7 +1959,7 @@ app.post('/api/forum/topics', authenticateToken, async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare creare subiect.' });
+    res.status(500).json({ error: 'Eroare creare subiect: ' + err.message });
   }
 });
 
@@ -1846,7 +1976,7 @@ app.post('/api/forum/posts', authenticateToken, async (req, res) => {
     }
     res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare adaugare comentariu.' });
+    res.status(500).json({ error: 'Eroare adaugare comentariu: ' + err.message });
   }
 });
 
