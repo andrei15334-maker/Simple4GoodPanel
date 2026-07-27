@@ -1179,9 +1179,16 @@ function filterFactionCategory(cat) {
   loadFactionsData();
 }
 
+function isSupremeUser() {
+  if (!currentUser) return false;
+  const rank = (currentUser.site_rank || '').toLowerCase();
+  return currentUser.adminLvl >= 6 || rank.includes('manager') || rank.includes('supreme') || rank.includes('fondator');
+}
+
 async function loadFactionsData() {
-  const isSupreme = currentUser && (currentUser.site_rank === 'Admin Supreme' || currentUser.adminLvl >= 6);
-  document.getElementById('admin-faction-add-card').style.display = isSupreme ? 'block' : 'none';
+  const isSupreme = isSupremeUser();
+  const addCard = document.getElementById('admin-faction-add-card');
+  if (addCard) addCard.style.display = isSupreme ? 'block' : 'none';
 
   try {
     const res = await fetch('/api/factions');
@@ -1451,8 +1458,9 @@ async function loadFullApplicationsPage(cat) {
   document.getElementById('full-app-type').value = cat;
   document.getElementById('app-form-header-title').innerText = `Formular Aplicație ${cat}`;
 
-  const isSupreme = currentUser && (currentUser.site_rank === 'Admin Supreme' || currentUser.site_rank === 'Manager Panel' || currentUser.adminLvl >= 6);
-  document.getElementById('admin-question-manager-card').style.display = isSupreme ? 'block' : 'none';
+  const isSupreme = isSupremeUser();
+  const qManagerCard = document.getElementById('admin-question-manager-card');
+  if (qManagerCard) qManagerCard.style.display = isSupreme ? 'block' : 'none';
 
   try {
     const statusRes = await fetch('/api/admin/app-status');
@@ -2470,33 +2478,48 @@ async function deleteRole(roleId) {
   });
 }
 
+let isSavingRole = false;
+
 async function adminSaveRole(e) {
-  if (e && e.preventDefault) e.preventDefault();
-  const name = document.getElementById('admin-role-name').value;
-  if (!name) return showToast('Introdu numele rolului!', 'error');
-  
-  const checkboxes = document.querySelectorAll('#admin-role-permissions-list input[type="checkbox"]');
-  const permissions = [];
-  checkboxes.forEach(chk => {
-    if (chk.checked) permissions.push(chk.value);
-  });
-  
+  if (e) {
+    if (typeof e.preventDefault === 'function') e.preventDefault();
+    if (typeof e.stopPropagation === 'function') e.stopPropagation();
+  }
+  if (isSavingRole) return false;
+
+  const inputEl = document.getElementById('admin-role-name');
+  const name = inputEl ? inputEl.value.trim() : '';
+  if (!name) {
+    showToast('Introdu numele rolului!', 'error');
+    return false;
+  }
+
+  isSavingRole = true;
   try {
+    const checkboxes = document.querySelectorAll('#admin-role-permissions-list input[type="checkbox"]');
+    const permissions = [];
+    checkboxes.forEach(chk => {
+      if (chk.checked) permissions.push(chk.value);
+    });
+
     const res = await fetch('/api/admin/roles', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('s4g_token') || token}` },
       body: JSON.stringify({ id: editingRoleId, name, permissions })
     });
     const data = await safeParseResponse(res);
-    if (!res.ok) throw new Error(data.error);
-    
-    showToast(data.message || 'Rol salvat cu succes!', 'success');
+    if (!res.ok) throw new Error(data.error || 'Eroare la salvarea rolului.');
+
+    showToast(data.message || `Rolul '${name}' a fost salvat cu succes!`, 'success');
     resetRoleForm();
-    loadAdminRoles();
+    await loadAdminRoles();
     if (typeof loadAdminStaffManager === 'function') loadAdminStaffManager();
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    isSavingRole = false;
   }
+  return false;
 }
 
 window.handleAdminCreateRole = adminSaveRole;
