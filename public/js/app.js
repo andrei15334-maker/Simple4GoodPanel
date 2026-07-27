@@ -426,6 +426,13 @@ async function handleRegister(e) {
   const email = document.getElementById('reg-email').value;
   const pass = document.getElementById('reg-password').value;
 
+  const btn = e.target.querySelector('button[type="submit"]');
+  const originalText = btn ? btn.innerHTML : 'CREEAZĂ CONT';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Se trimite e-mailul...';
+  }
+
   try {
     const res = await fetch('/api/auth/register', {
       method: 'POST',
@@ -445,6 +452,11 @@ async function handleRegister(e) {
 
   } catch (err) {
     showToast(err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    }
   }
 }
 
