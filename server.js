@@ -2560,7 +2560,10 @@ async function isRoleAdminUser(req) {
   }
   if (!useMock) {
     try {
-      const [rows] = await dbPool.query('SELECT site_rank, adminLvl FROM panel_accounts WHERE id = ? OR user_id = ?', [req.user.id, req.user.user_id]);
+      const [rows] = await dbPool.query(
+        'SELECT site_rank, adminLvl FROM panel_accounts WHERE id = ? OR user_id = ? OR username = ?',
+        [req.user.id || 0, req.user.user_id || 0, req.user.username || '']
+      );
       if (rows.length > 0) {
         const dbRank = (rows[0].site_rank || '').toLowerCase();
         const dbLvl = rows[0].adminLvl || 0;
@@ -2572,6 +2575,31 @@ async function isRoleAdminUser(req) {
   }
   return false;
 }
+
+app.get('/api/roles', async (req, res) => {
+  if (!useMock) {
+    try {
+      await dbPool.query(`
+        CREATE TABLE IF NOT EXISTS panel_roles (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          permissions TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
+      const [rows] = await dbPool.query('SELECT * FROM panel_roles ORDER BY id DESC');
+      const roles = rows.map(r => {
+        let perms = [];
+        try { perms = typeof r.permissions === 'string' ? JSON.parse(r.permissions) : r.permissions; } catch(e) { perms = []; }
+        return { id: r.id, name: r.name, permissions: perms };
+      });
+      return res.json({ roles });
+    } catch(err) {
+      return res.json({ roles: [] });
+    }
+  }
+  res.json({ roles: mockData.roles || [] });
+});
 
 app.get('/api/admin/roles', authenticateToken, async (req, res) => {
   const hasAccess = await isRoleAdminUser(req);

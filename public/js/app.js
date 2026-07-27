@@ -2396,11 +2396,11 @@ let editingRoleId = null;
 async function loadAdminRoles() {
   const listEl = document.getElementById('admin-existing-roles-list');
   try {
-    const res = await fetch('/api/admin/roles', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('s4g_token') || token}` }
+    const authToken = localStorage.getItem('s4g_token') || token || '';
+    const res = await fetch('/api/roles', {
+      headers: { 'Authorization': `Bearer ${authToken}` }
     });
     const data = await safeParseResponse(res);
-    if (!res.ok) throw new Error(data.error || 'Acces interzis la roluri');
     currentRoles = data.roles || [];
 
     if (listEl) {
