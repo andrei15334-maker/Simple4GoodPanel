@@ -1428,25 +1428,29 @@ app.get('/api/applications/questions*', async (req, res) => {
           CREATE TABLE IF NOT EXISTS panel_app_questions (
             id INT AUTO_INCREMENT PRIMARY KEY,
             app_type VARCHAR(100) NOT NULL,
-            question_text TEXT NOT NULL
-          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+            question_text TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
         `);
       } catch (e) {}
 
-      let [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE LOWER(TRIM(app_type)) = LOWER(TRIM(?)) ORDER BY id ASC', [appType]);
-      if (q.length === 0) {
-        // Try fallback search without diacritics
-        const cleanType = appType.replace(/[șş]/gi, 's').replace(/[țţ]/gi, 't').replace(/[ăâ]/gi, 'a').replace(/î/gi, 'i');
-        const [qFallback] = await dbPool.query('SELECT * FROM panel_app_questions WHERE LOWER(TRIM(app_type)) LIKE ? ORDER BY id ASC', [`%${cleanType.substring(0, 8)}%`]);
-        q = qFallback;
-      }
-      questions = q || [];
+      // Fetch all questions and filter in JS to avoid MySQL collation mismatch
+      const [allQuestions] = await dbPool.query('SELECT * FROM panel_app_questions ORDER BY id ASC');
+      
+      const targetLower = appType.toLowerCase().trim();
+      const targetClean = targetLower.replace(/[șş]/g, 's').replace(/[țţ]/g, 't').replace(/[ăâ]/g, 'a').replace(/î/g, 'i');
+
+      questions = allQuestions.filter(q => {
+        const qTypeLower = (q.app_type || '').toLowerCase().trim();
+        const qTypeClean = qTypeLower.replace(/[șş]/g, 's').replace(/[țţ]/g, 't').replace(/[ăâ]/g, 'a').replace(/î/g, 'i');
+        return qTypeLower === targetLower || qTypeClean === targetClean || qTypeClean.includes(targetClean.substring(0, 6));
+      });
     } else {
       questions = (mockData.questions || []).filter(q => q.app_type === appType);
     }
     res.json({ questions });
   } catch (err) {
-    console.error('Error fetching questions:', err);
+    console.error('Error fetching questions:', err.message);
     res.json({ questions: [] });
   }
 });
