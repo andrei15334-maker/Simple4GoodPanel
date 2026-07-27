@@ -1841,7 +1841,6 @@ async function fetchAdminLogs(page = 1) {
     console.error(err);
   }
 }
-}
 
 async function loadPanelSettingsUsers() {
   try {
