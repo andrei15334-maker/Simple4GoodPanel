@@ -2421,9 +2421,12 @@ async function loadAdminRoles() {
           </div>
         `).join('');
       }
-    }
   } catch (err) {
     console.error('Error loading roles', err);
+    const listEl = document.getElementById('admin-existing-roles-list');
+    if (listEl) {
+      listEl.innerHTML = `<div style="color: var(--x-danger); font-size: 0.85rem; padding: 0.5rem 0;">Eroare la încărcare: ${err.message || 'Acces interzis'}</div>`;
+    }
   }
 }
 

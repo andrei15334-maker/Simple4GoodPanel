@@ -2552,14 +2552,30 @@ app.delete('/api/forum/posts/:id', authenticateToken, async (req, res) => {
 
 // --- ROLE & APP STATUS API ---
 
-function isRoleAdminUser(user) {
-  if (!user) return false;
-  const rank = (user.site_rank || '').toLowerCase();
-  return user.adminLvl >= 5 || rank.includes('manager') || rank.includes('supreme') || rank.includes('admin') || rank.includes('fondator');
+async function isRoleAdminUser(req) {
+  if (!req || !req.user) return false;
+  const rank = (req.user.site_rank || '').toLowerCase();
+  if (req.user.adminLvl >= 5 || rank.includes('manager') || rank.includes('supreme') || rank.includes('admin') || rank.includes('fondator')) {
+    return true;
+  }
+  if (!useMock) {
+    try {
+      const [rows] = await dbPool.query('SELECT site_rank, adminLvl FROM panel_accounts WHERE id = ? OR user_id = ?', [req.user.id, req.user.user_id]);
+      if (rows.length > 0) {
+        const dbRank = (rows[0].site_rank || '').toLowerCase();
+        const dbLvl = rows[0].adminLvl || 0;
+        if (dbLvl >= 5 || dbRank.includes('manager') || dbRank.includes('supreme') || dbRank.includes('admin') || dbRank.includes('fondator')) {
+          return true;
+        }
+      }
+    } catch(e) {}
+  }
+  return false;
 }
 
 app.get('/api/admin/roles', authenticateToken, async (req, res) => {
-  if (!isRoleAdminUser(req.user)) return res.status(403).json({ error: 'Acces interzis.' });
+  const hasAccess = await isRoleAdminUser(req);
+  if (!hasAccess) return res.status(403).json({ error: 'Acces interzis.' });
   
   if (!useMock) {
     try {
@@ -2586,7 +2602,8 @@ app.get('/api/admin/roles', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/admin/roles', authenticateToken, async (req, res) => {
-  if (!isRoleAdminUser(req.user)) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot crea roluri.' });
+  const hasAccess = await isRoleAdminUser(req);
+  if (!hasAccess) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot crea roluri.' });
   const { name, permissions } = req.body;
   if (!name) return res.status(400).json({ error: 'Numele rolului este obligatoriu.' });
   
@@ -2622,7 +2639,8 @@ app.post('/api/admin/roles', authenticateToken, async (req, res) => {
 });
 
 app.delete('/api/admin/roles/:id', authenticateToken, async (req, res) => {
-  if (!isRoleAdminUser(req.user)) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot șterge roluri.' });
+  const hasAccess = await isRoleAdminUser(req);
+  if (!hasAccess) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot șterge roluri.' });
 
   const roleId = parseInt(req.params.id);
   try {
