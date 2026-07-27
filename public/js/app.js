@@ -2491,10 +2491,17 @@ async function adminSaveRole(e) {
   }
   if (isSavingRole) return false;
 
-  const inputEl = document.getElementById('admin-role-name');
-  const name = inputEl ? inputEl.value.trim() : '';
+  let name = '';
+  const el1 = document.getElementById('admin-role-name');
+  const el2 = document.querySelector('input[placeholder*="Numele rolului"]');
+  const el3 = document.querySelector('#view-roles input[type="text"]');
+
+  if (el1 && el1.value.trim()) name = el1.value.trim();
+  else if (el2 && el2.value.trim()) name = el2.value.trim();
+  else if (el3 && el3.value.trim()) name = el3.value.trim();
+
   if (!name) {
-    showToast('Introdu numele rolului!', 'error');
+    showToast('Vă rugăm să scrieți numele rolului în casetă!', 'error');
     return false;
   }
 

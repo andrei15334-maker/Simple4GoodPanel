@@ -2618,10 +2618,11 @@ app.post('/api/admin/roles', authenticateToken, async (req, res) => {
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
       const permsStr = JSON.stringify(permissions || []);
-      await dbPool.query(
-        'INSERT INTO panel_roles (name, permissions) VALUES (?, ?) ON DUPLICATE KEY UPDATE permissions = ?',
-        [name, permsStr, permsStr]
-      );
+      if (req.body.id) {
+        await dbPool.query('UPDATE panel_roles SET name = ?, permissions = ? WHERE id = ?', [name, permsStr, req.body.id]);
+      } else {
+        await dbPool.query('INSERT INTO panel_roles (name, permissions) VALUES (?, ?) ON DUPLICATE KEY UPDATE permissions = ?', [name, permsStr, permsStr]);
+      }
       return res.json({ success: true, message: `Rolul '${name}' a fost salvat cu succes!` });
     } catch(err) {
       return res.status(500).json({ error: 'Eroare la salvarea rolului: ' + err.message });
