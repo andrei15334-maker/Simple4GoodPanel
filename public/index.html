@@ -1220,17 +1220,19 @@
   <div class="modal-overlay" id="modal-verify-code">
     <div class="modal">
       <div class="modal-header">
-        <h3 style="color: white; font-family: 'Space Grotesk', sans-serif;"><i class="fa-solid fa-shield-halved" style="color: var(--x-pink);"></i> Confirmare Cont</h3>
+        <h3 style="color: white; font-family: 'Space Grotesk', sans-serif;"><i class="fa-solid fa-envelope-open-text" style="color: var(--x-pink);"></i> Confirmare Cont prin E-mail</h3>
         <button class="modal-close" onclick="closeModal('modal-verify-code')">&times;</button>
       </div>
-      <p style="color: var(--x-text-body); margin-bottom: 1rem; font-size: 0.9rem;">Am trimis un cod de verificare pe adresa ta de e-mail. Introdu-l mai jos pentru a-ți activa contul.</p>
+      <p style="color: var(--x-text-body); margin-bottom: 1.2rem; font-size: 0.9rem; line-height: 1.5;">
+        <i class="fa-solid fa-paper-plane" style="color: var(--x-cyan);"></i> Am trimis un e-mail cu un <b>cod de verificare din 6 cifre</b> pe adresa ta. Deschide e-mailul (verifică și folderul <b>Spam / Junk</b>) și introdu codul primit mai jos:
+      </p>
       <form onsubmit="handleVerifyCode(event)">
         <input type="hidden" id="verify-email">
         <div class="form-group">
-          <label class="form-label">Cod de Verificare (6 cifre)</label>
+          <label class="form-label">Cod de Verificare (6 cifre din e-mail)</label>
           <input type="text" id="verify-code" class="form-input" placeholder="Ex: 123456" required style="letter-spacing: 3px; font-weight: bold; text-align: center; font-size: 1.2rem;">
         </div>
-        <button type="submit" class="btn btn-pink" style="width: 100%; margin-top: 1rem;">CONFIRMĂ CODUL</button>
+        <button type="submit" class="btn btn-pink" style="width: 100%; margin-top: 1rem;">ACTIVARE CONT</button>
       </form>
     </div>
   </div>

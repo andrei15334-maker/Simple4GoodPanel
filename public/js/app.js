@@ -436,13 +436,11 @@ async function handleRegister(e) {
     if (!res.ok) throw new Error(data.error || 'Eroare la înregistrare.');
 
     closeModal('modal-register');
-    if (data.debug_code) {
-      showToast(`Codul tău de verificare este: ${data.debug_code}`, 'success');
-    } else {
-      showToast(data.message, 'success');
-    }
+    showToast(data.message, 'success');
     
     document.getElementById('verify-email').value = email;
+    const verifyInput = document.getElementById('verify-code');
+    if (verifyInput) verifyInput.value = '';
     openModal('modal-verify-code');
 
   } catch (err) {
