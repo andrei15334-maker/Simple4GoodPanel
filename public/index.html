@@ -535,41 +535,14 @@
                 <button class="btn btn-pink" style="margin-top: 1.5rem; width: 100%;" onclick="adminSaveAppStatuses()">SALVEAZĂ STĂRILE</button>
               </div>
 
-              <!-- Right: Role Management -->
+              <!-- Right: Role Management Redirect -->
               <div class="x-card">
                 <h3 style="color: white; font-family: 'Space Grotesk', sans-serif; margin-bottom: 1rem;"><i class="fa-solid fa-user-shield" style="color: var(--x-gold);"></i> Gestiune Roluri Custom</h3>
-                <p style="color: var(--x-text-muted); font-size: 0.85rem; margin-bottom: 1rem;">Creează, editează sau șterge roluri și permisiunile lor.</p>
+                <p style="color: var(--x-text-muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Creează, editează sau șterge roluri și permisiunile lor din Centrul dedicat.</p>
                 
-                <div class="form-group">
-                  <label class="form-label">Nume Rol (ex: Manager Panel, Co-Lider)</label>
-                  <input type="text" id="admin-role-name" class="form-input" placeholder="Introdu numele rolului...">
-                </div>
-                
-                <div class="form-group" style="margin-top: 1rem;">
-                  <label class="form-label">Permisiuni Acordate:</label>
-                  <div style="display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;" id="admin-role-permissions-list">
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_staff_apps"> Acces Aplicații Staff</label>
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_police_apps"> Acces Aplicații Poliție</label>
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_smurd_apps"> Acces Aplicații SMURD</label>
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_mecanic_apps"> Acces Aplicații Mecanici</label>
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_gang_apps"> Acces Aplicații Mafii</label>
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_rules"> Acces Modificare Regulament</label>
-                    <label style="color: white; display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="manage_roles"> Acces Gestiune Roluri (Manager)</label>
-                    <label style="color: var(--x-gold); display: flex; align-items: center; gap: 0.5rem;"><input type="checkbox" value="full_access"> Full Access (Toate funcțiile)</label>
-                  </div>
-                </div>
-
-                <div style="display: flex; gap: 0.5rem; margin-top: 1.2rem;">
-                  <button class="btn btn-pink" style="flex: 1;" onclick="adminSaveRole()">SALVEAZĂ ROLUL</button>
-                  <button class="btn btn-glass" style="display: none; border-color: var(--x-danger); color: var(--x-danger);" id="btn-cancel-edit-role" onclick="resetRoleForm()">ANULEAZĂ</button>
-                </div>
-
-                <hr style="border: 0; border-top: 1px solid var(--x-border); margin: 1.5rem 0;">
-
-                <h4 style="color: white; font-size: 0.95rem; font-weight: 700; margin-bottom: 0.8rem;"><i class="fa-solid fa-list-check" style="color: var(--x-gold);"></i> Roluri Existente pe Panel:</h4>
-                <div id="admin-existing-roles-list" style="display: flex; flex-direction: column; gap: 0.6rem; max-height: 250px; overflow-y: auto;">
-                  <div style="color: var(--x-text-muted); font-size: 0.85rem;">Se încarcă rolurile...</div>
-                </div>
+                <button class="btn btn-pink glow-btn" style="width: 100%; padding: 0.9rem;" onclick="switchView('roles')">
+                  <i class="fa-solid fa-user-gear"></i> DESCHIDE CENTRUL DE GESTIUNE ROLURI
+                </button>
               </div>
 
             </div>
@@ -1438,6 +1411,6 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=2.0.5"></script>
+  <script src="js/app.js?v=2.0.6"></script>
 </body>
 </html>
