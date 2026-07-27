@@ -67,6 +67,7 @@ async function initDB() {
       user: process.env.DB_USER || 'root',
       password: process.env.DB_PASS || '',
       database: process.env.DB_NAME || 'andreitest',
+      charset: 'utf8mb4',
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
@@ -504,6 +505,16 @@ async function runMigrations() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
 
+  // 10. panel_roles
+  await createTableSafe('panel_roles', `
+    CREATE TABLE IF NOT EXISTS panel_roles (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      name VARCHAR(100) UNIQUE NOT NULL,
+      permissions TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
   const checkAndAddColumn = async (tableName, columnName, alterQuery) => {
     try {
       const [colsRows] = await dbPool.query(`SHOW COLUMNS FROM ${tableName}`);
@@ -524,6 +535,8 @@ async function runMigrations() {
   await checkAndAddColumn('panel_accounts', 'warns', "ALTER TABLE panel_accounts ADD COLUMN warns INT NOT NULL DEFAULT 0");
   await checkAndAddColumn('panel_accounts', 'user_id', "ALTER TABLE panel_accounts ADD COLUMN user_id INT NOT NULL DEFAULT 0");
   await checkAndAddColumn('panel_accounts', 'staff_grade', "ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
+  await checkAndAddColumn('panel_accounts', 'is_verified', "ALTER TABLE panel_accounts ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 0");
+  await checkAndAddColumn('panel_accounts', 'verification_token', "ALTER TABLE panel_accounts ADD COLUMN verification_token VARCHAR(255) DEFAULT NULL");
   
   console.log('Database migrations completed successfully!');
 }
@@ -673,8 +686,8 @@ app.post('/api/auth/register', async (req, res) => {
       const siteRank = (username.toLowerCase().includes('admin')) ? 'Admin Supreme' : 'Member';
 
       await dbPool.query(
-        'INSERT INTO panel_accounts (username, user_id, email, password, site_rank) VALUES (?, ?, ?, ?, ?)',
-        [username, fake_user_id, email, hashedPassword, siteRank]
+        'INSERT INTO panel_accounts (username, user_id, email, password, site_rank, is_verified, verification_token) VALUES (?, ?, ?, ?, ?, 0, ?)',
+        [username, fake_user_id, email, hashedPassword, siteRank, verifyCode]
       );
     } else {
       const existing = mockData.accounts.find(a => a.email.toLowerCase() === email.toLowerCase() || a.username.toLowerCase() === username.toLowerCase());
@@ -702,25 +715,29 @@ app.post('/api/auth/register', async (req, res) => {
 
     // Trimite email-ul de verificare
     if (emailTransporter) {
-      const mailOptions = {
-        from: '"S4G Panel" <noreply@s4g.ro>',
-        to: email,
-        subject: 'Cod Confirmare Cont - S4G Roleplay',
-        html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #060606; color: white; padding: 2rem; border-radius: 8px; border: 1px solid #1f1f1f;">
-            <h2 style="color: #e62b3a; text-align: center;">BINE AI VENIT PE S4G!</h2>
-            <p>Salutare <strong>${username}</strong>,</p>
-            <p>Îți mulțumim că te-ai alăturat comunității Simple4Good. Pentru a-ți activa contul, folosește codul de securitate de mai jos:</p>
-            <div style="text-align: center; margin: 2rem 0; font-size: 2.5rem; letter-spacing: 5px; color: #e62b3a; font-weight: bold; background: rgba(230, 43, 58, 0.1); padding: 1rem; border-radius: 8px;">
-              ${verifyCode}
+      try {
+        const mailOptions = {
+          from: '"S4G Panel" <Simple4Good2026@gmail.com>',
+          to: email,
+          subject: 'Cod Confirmare Cont - S4G Roleplay',
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #060606; color: white; padding: 2rem; border-radius: 8px; border: 1px solid #1f1f1f;">
+              <h2 style="color: #e62b3a; text-align: center;">BINE AI VENIT PE S4G!</h2>
+              <p>Salutare <strong>${username}</strong>,</p>
+              <p>Îți mulțumim că te-ai alăturat comunității Simple4Good. Pentru a-ți activa contul, folosește codul de securitate de mai jos:</p>
+              <div style="text-align: center; margin: 2rem 0; font-size: 2.5rem; letter-spacing: 5px; color: #e62b3a; font-weight: bold; background: rgba(230, 43, 58, 0.1); padding: 1rem; border-radius: 8px;">
+                ${verifyCode}
+              </div>
+              <p style="color: #888; font-size: 0.9em;">Introdu acest cod în fereastra de pe site pentru a finaliza înregistrarea.</p>
             </div>
-            <p style="color: #888; font-size: 0.9em;">Introdu acest cod în fereastra de pe site pentru a finaliza înregistrarea.</p>
-          </div>
-        `
-      };
-      
-      const info = await emailTransporter.sendMail(mailOptions);
-      console.log('Verification Email sent: %s', nodemailer.getTestMessageUrl(info));
+          `
+        };
+        
+        await emailTransporter.sendMail(mailOptions);
+        console.log(`Verification Email sent successfully to ${email}`);
+      } catch (mailErr) {
+        console.error('Failed to send verification email via Gmail SMTP:', mailErr.message);
+      }
     }
 
     res.json({ success: true, message: 'Cont creat cu succes! Verifică-ți e-mailul pentru codul de confirmare.', debug_code: verifyCode });
@@ -1099,8 +1116,20 @@ app.post('/api/auth/verify-code', async (req, res) => {
   if (!email || !code) return res.status(400).json({ error: 'Date incomplete.' });
   
   if (!useMock) {
-    // Basic SQL implementation placeholder
-    return res.status(500).json({ error: 'SQL nu este complet implementat.' });
+    try {
+      const [accs] = await dbPool.query('SELECT * FROM panel_accounts WHERE email = ?', [email]);
+      if (accs.length === 0) return res.status(400).json({ error: 'Contul nu a putut fi găsit.' });
+      const account = accs[0];
+      
+      if (account.verification_token !== code) {
+        return res.status(400).json({ error: 'Cod de verificare invalid.' });
+      }
+      
+      await dbPool.query('UPDATE panel_accounts SET is_verified = 1, verification_token = NULL WHERE email = ?', [email]);
+      res.json({ success: true, message: 'Contul tău a fost verificat cu succes!' });
+    } catch (err) {
+      res.status(500).json({ error: 'Eroare la verificare: ' + err.message });
+    }
   } else {
     const account = mockData.accounts.find(a => a.email.toLowerCase() === email.toLowerCase());
     if (!account) return res.status(400).json({ error: 'Contul nu a putut fi gasit.' });
@@ -1795,6 +1824,19 @@ app.get('/api/dashboard/activities', async (req, res) => {
   try {
     let activities = [];
     if (!useMock) {
+      try {
+        await dbPool.query(`
+          CREATE TABLE IF NOT EXISTS panel_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            action_type VARCHAR(100) NOT NULL,
+            description TEXT NOT NULL,
+            target_id INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+      } catch (e) {}
+
       const [rows] = await dbPool.query(`
         SELECT l.id, l.user_id, l.action_type, l.description, l.created_at, a.username 
         FROM panel_logs l
@@ -1802,13 +1844,36 @@ app.get('/api/dashboard/activities', async (req, res) => {
         ORDER BY l.id DESC 
         LIMIT 15
       `);
-      activities = rows.map(r => ({
-        id: r.id,
-        username: r.username || 'Sistem',
-        action_type: r.action_type,
-        description: r.description,
-        created_at: r.created_at
-      }));
+
+      if (rows.length === 0) {
+        try {
+          await dbPool.query('INSERT INTO panel_logs (user_id, action_type, description) VALUES (?, ?, ?)', [0, 'SYSTEM', 'Sistemul Simple4Good Panel este online și pregătit.']);
+          const [seededRows] = await dbPool.query(`
+            SELECT l.id, l.user_id, l.action_type, l.description, l.created_at, a.username 
+            FROM panel_logs l
+            LEFT JOIN panel_accounts a ON l.user_id = a.id OR l.user_id = a.user_id
+            ORDER BY l.id DESC 
+            LIMIT 15
+          `);
+          activities = seededRows.map(r => ({
+            id: r.id,
+            username: r.username || 'Sistem',
+            action_type: r.action_type,
+            description: r.description,
+            created_at: r.created_at
+          }));
+        } catch (e) {
+          activities = [];
+        }
+      } else {
+        activities = rows.map(r => ({
+          id: r.id,
+          username: r.username || 'Sistem',
+          action_type: r.action_type,
+          description: r.description,
+          created_at: r.created_at
+        }));
+      }
     } else {
       const logs = mockData.adminLogs || [];
       activities = logs.slice(0, 15).map(l => ({
@@ -1943,6 +2008,15 @@ app.get('/api/admin/run-migration-force', authenticateToken, async (req, res) =>
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
+    await runQuery('Table panel_roles', `
+      CREATE TABLE IF NOT EXISTS panel_roles (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100) UNIQUE NOT NULL,
+        permissions TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
     // Column Alters
     await runQuery('Col site_rank', "ALTER TABLE panel_accounts ADD COLUMN site_rank VARCHAR(50) NOT NULL DEFAULT 'Member'");
     await runQuery('Col adminLvl', "ALTER TABLE panel_accounts ADD COLUMN adminLvl INT NOT NULL DEFAULT 0");
@@ -1951,6 +2025,8 @@ app.get('/api/admin/run-migration-force', authenticateToken, async (req, res) =>
     await runQuery('Col warns', "ALTER TABLE panel_accounts ADD COLUMN warns INT NOT NULL DEFAULT 0");
     await runQuery('Col user_id', "ALTER TABLE panel_accounts ADD COLUMN user_id INT NOT NULL DEFAULT 0");
     await runQuery('Col staff_grade', "ALTER TABLE panel_accounts ADD COLUMN staff_grade VARCHAR(100) NOT NULL DEFAULT 'Fără Grad'");
+    await runQuery('Col is_verified', "ALTER TABLE panel_accounts ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 0");
+    await runQuery('Col verification_token', "ALTER TABLE panel_accounts ADD COLUMN verification_token VARCHAR(255) DEFAULT NULL");
 
     res.json({ success: true, results });
   } catch (err) {
@@ -2336,23 +2412,44 @@ app.get('/api/admin/roles', authenticateToken, async (req, res) => {
   
   if (!useMock) {
     try {
+      await dbPool.query(`
+        CREATE TABLE IF NOT EXISTS panel_roles (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          permissions TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
       const [rows] = await dbPool.query('SELECT * FROM panel_roles');
-      const roles = rows.map(r => ({ id: r.id, name: r.name, permissions: JSON.parse(r.permissions) }));
+      const roles = rows.map(r => {
+        let perms = [];
+        try { perms = JSON.parse(r.permissions); } catch(e) { perms = []; }
+        return { id: r.id, name: r.name, permissions: perms };
+      });
       return res.json({ roles });
     } catch(err) {
-      return res.status(500).json({ error: 'Eroare bază de date.' });
+      return res.status(500).json({ error: 'Eroare bază de date: ' + err.message });
     }
   }
   res.json({ roles: mockData.roles });
 });
 
 app.post('/api/admin/roles', authenticateToken, async (req, res) => {
-  if (req.user.site_rank !== 'Manager Panel') return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot crea roluri.' });
+  const isManager = req.user.site_rank === 'Manager Panel' || req.user.site_rank === 'Admin Supreme' || req.user.adminLvl >= 7;
+  if (!isManager) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot crea roluri.' });
   const { name, permissions } = req.body;
   if (!name) return res.status(400).json({ error: 'Numele rolului este obligatoriu.' });
   
   if (!useMock) {
     try {
+      await dbPool.query(`
+        CREATE TABLE IF NOT EXISTS panel_roles (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) UNIQUE NOT NULL,
+          permissions TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+      `);
       const permsStr = JSON.stringify(permissions || []);
       await dbPool.query(
         'INSERT INTO panel_roles (name, permissions) VALUES (?, ?) ON DUPLICATE KEY UPDATE permissions = ?',
@@ -2360,7 +2457,7 @@ app.post('/api/admin/roles', authenticateToken, async (req, res) => {
       );
       return res.json({ success: true, message: 'Rol salvat cu succes în baza de date!' });
     } catch(err) {
-      return res.status(500).json({ error: 'Eroare la salvarea rolului.' });
+      return res.status(500).json({ error: 'Eroare la salvarea rolului: ' + err.message });
     }
   }
 

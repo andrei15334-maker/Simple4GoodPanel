@@ -279,38 +279,61 @@ body {
   border: 1px solid var(--x-border-gold);
   border-radius: var(--x-radius-md);
   padding: 2rem 1.6rem;
-  transition: var(--transition);
+  transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
   box-shadow: 0 20px 40px rgba(0,0,0,0.9);
   position: relative;
   overflow: hidden;
 }
 
+.feature-box::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; width: 100%; height: 100%;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.08) 0%, transparent 60%);
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.feature-box-interactive:hover::before {
+  opacity: 1;
+}
+
 .feature-box-interactive:hover {
-  transform: translateY(-8px);
-  border-color: rgba(255, 255, 255, 0.2);
-  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5), 0 0 15px rgba(255, 255, 255, 0.05);
+  transform: translateY(-10px);
+  border-color: var(--x-gold) !important;
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.7), 0 0 20px rgba(255, 215, 0, 0.15) !important;
 }
 
 .feature-box-interactive:hover .feature-icon-wrap i {
-  transform: scale(1.1) translateY(-3px);
-  color: var(--x-gold);
+  animation: floatIcon 1.5s infinite ease-in-out alternate;
+  color: #000000 !important;
 }
 
 .feature-icon-wrap {
   width: 54px; height: 54px;
   border-radius: var(--x-radius-sm);
-  background: rgba(230, 43, 58, 0.1);
+  background: rgba(255, 215, 0, 0.05);
+  border: 1px solid rgba(255, 215, 0, 0.1);
   color: var(--x-gold);
   display: flex; align-items: center; justify-content: center;
   font-size: 1.5rem;
   margin-bottom: 1.2rem;
-  transition: var(--transition);
+  transition: all 0.3s ease;
+  position: relative;
+  z-index: 1;
 }
 
 .feature-box:hover .feature-icon-wrap {
-  background: rgba(255, 255, 255, 0.1);
-  color: #ffffff;
-  box-shadow: 0 0 15px rgba(255, 255, 255, 0.15);
+  background: var(--x-gold) !important;
+  color: #000000 !important;
+  box-shadow: 0 0 18px rgba(255, 215, 0, 0.4);
+}
+
+@keyframes floatIcon {
+  0% { transform: translateY(0) rotate(0deg) scale(1.1); }
+  100% { transform: translateY(-4px) rotate(6deg) scale(1.15); }
 }
 
 .feature-box-title {
