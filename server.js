@@ -1433,14 +1433,21 @@ app.get('/api/applications/questions*', async (req, res) => {
         `);
       } catch (e) {}
 
-      const [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE app_type = ? ORDER BY id ASC', [appType]);
-      questions = q;
+      let [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE LOWER(TRIM(app_type)) = LOWER(TRIM(?)) ORDER BY id ASC', [appType]);
+      if (q.length === 0) {
+        // Try fallback search without diacritics
+        const cleanType = appType.replace(/[șş]/gi, 's').replace(/[țţ]/gi, 't').replace(/[ăâ]/gi, 'a').replace(/î/gi, 'i');
+        const [qFallback] = await dbPool.query('SELECT * FROM panel_app_questions WHERE LOWER(TRIM(app_type)) LIKE ? ORDER BY id ASC', [`%${cleanType.substring(0, 8)}%`]);
+        q = qFallback;
+      }
+      questions = q || [];
     } else {
       questions = (mockData.questions || []).filter(q => q.app_type === appType);
     }
     res.json({ questions });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare întrebări: ' + err.message });
+    console.error('Error fetching questions:', err);
+    res.json({ questions: [] });
   }
 });
 
