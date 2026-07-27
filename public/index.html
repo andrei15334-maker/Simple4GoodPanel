@@ -131,6 +131,7 @@
       <ul class="sidebar-nav">
 
         <li id="sidebar-logs-item" style="display: none;"><a class="sidebar-link" id="slink-logs" onclick="switchView('logs')"><i class="fa-solid fa-list-check"></i> Loguri Admin</a></li>
+        <li id="sidebar-roles-item" style="display: none;"><a class="sidebar-link" id="slink-roles" onclick="switchView('roles')"><i class="fa-solid fa-user-gear" style="color: var(--x-pink);"></i> Gestiune Roluri</a></li>
         <li id="sidebar-settings-item" style="display: none;"><a class="sidebar-link" id="slink-settings" onclick="switchView('settings')"><i class="fa-solid fa-gear"></i> Setări Panel</a></li>
       </ul>
 
@@ -841,6 +842,76 @@
               </tbody>
             </table>
             <div id="logs-pagination" style="display: flex; gap: 0.4rem; margin-top: 1.4rem; justify-content: center;"></div>
+          </div>
+        </section>
+
+        <!-- GESTIUNE ROLURI PANEL VIEW -->
+        <section id="view-roles" class="view-section" style="display: none;">
+          <div class="x-card anim-card-1">
+            <div style="font-family: 'Space Grotesk', sans-serif; font-size: 1.4rem; font-weight: 800; color: white; margin-bottom: 0.5rem;">
+              <i class="fa-solid fa-user-gear" style="color: var(--x-pink);"></i> Centru Gestiune & Management Roluri Panel (Admin Supreme)
+            </div>
+            <p style="color: var(--x-text-muted); margin-bottom: 1.5rem; font-size: 0.9rem;">
+              Creează roluri noi, editează denumirile, modifică permisiunile sau șterge gradele existente cu control total asupra accesului pe panel.
+            </p>
+
+            <form onsubmit="handleAdminCreateRole(event)" style="background: rgba(255,255,255,0.02); border: 1px solid var(--x-border); padding: 1.5rem; border-radius: var(--x-radius-md); margin-bottom: 2rem;">
+              <input type="hidden" id="role-edit-id">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h4 style="color: white; font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; margin: 0;" id="role-form-title">
+                  <i class="fa-solid fa-plus-circle" style="color: var(--x-pink);"></i> Creează un Rol Nou
+                </h4>
+                <button type="button" class="btn btn-glass" id="btn-cancel-role-edit" style="display: none; padding: 0.3rem 0.7rem; font-size: 0.8rem;" onclick="resetRoleForm()">Renunță Editare</button>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">Nume Grad / Rol Custom (Ex: Co-Fondator, Moderator, Inspector)</label>
+                <input type="text" id="admin-role-name" class="form-input" placeholder="Numele rolului..." required>
+              </div>
+
+              <label class="form-label" style="margin-top: 1rem; display: block;">Permisiuni & Acces în Panel (Bifați accesul dorit):</label>
+              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.8rem; margin: 1rem 0;">
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-full-access" value="full_access">
+                  <span>🔒 Acces Complet Manager Panel</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-police-apps" value="manage_police_apps">
+                  <span>👮 Gestionare Aplicații Poliție</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-smurd-apps" value="manage_smurd_apps">
+                  <span>🚑 Gestionare Aplicații SMURD</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-mecanic-apps" value="manage_mecanic_apps">
+                  <span>🔧 Gestionare Aplicații Mecanic</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-gang-apps" value="manage_gang_apps">
+                  <span>🔫 Gestionare Aplicații Mafie / Gang</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-staff-apps" value="manage_staff_apps">
+                  <span>🛡️ Gestionare Aplicații Staff</span>
+                </label>
+                <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
+                  <input type="checkbox" id="perm-audit-logs" value="view_audit_logs">
+                  <span>📜 Vizualizare Loguri Audit Admin</span>
+                </label>
+              </div>
+
+              <button type="submit" class="btn btn-pink glow-btn" id="btn-submit-role" style="margin-top: 1rem; width: 100%; justify-content: center; font-size: 1.05rem;">
+                <i class="fa-solid fa-floppy-disk"></i> SALVEAZĂ ROLUL
+              </button>
+            </form>
+
+            <h4 style="color: white; font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; margin-bottom: 1rem;">
+              <i class="fa-solid fa-list-check" style="color: var(--x-gold);"></i> Lista Rolurilor Existente pe Panel
+            </h4>
+            <div id="admin-existing-roles-list">
+              <div style="color: var(--x-text-muted); text-align: center; padding: 1.5rem;">Se încarcă rolurile...</div>
+            </div>
           </div>
         </section>
 

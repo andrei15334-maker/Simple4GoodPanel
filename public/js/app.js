@@ -13,6 +13,24 @@ let activePMComplaintId = null;
 let currentProfileSanctions = [];
 const PUNISH_PAGE_SIZE = 7;
 
+function fixDiacritics(str) {
+  if (!str || typeof str !== 'string') return str || '';
+  return str
+    .replace(/\?i\b/g, 'și')
+    .replace(/\?i/g, 'și')
+    .replace(/Discu\?ii/gi, 'Discuții')
+    .replace(/discu\?ie/gi, 'discuție')
+    .replace(/încadreaz\?/gi, 'încadrează')
+    .replace(/preg\?tit/gi, 'pregătit')
+    .replace(/activit\?ți/gi, 'activități')
+    .replace(/solicit\?rile/gi, 'solicitările')
+    .replace(/categorii\?/gi, 'categorii')
+    .replace(/\?t/g, 'ț')
+    .replace(/\?a/g, 'ă')
+    .replace(/\?e/g, 'e')
+    .replace(/\?/g, 'ș');
+}
+
 
 document.addEventListener('DOMContentLoaded', () => {
   const urlParams = new URLSearchParams(window.location.search);
@@ -151,8 +169,11 @@ function updateLayoutVisibility() {
       if (sidebarLogsItem) sidebarLogsItem.style.display = 'block';
     }
 
+    const sidebarRolesItem = document.getElementById('sidebar-roles-item');
+
     if (isSupreme) {
       if (sidebarCStaff) sidebarCStaff.style.display = 'block';
+      if (sidebarRolesItem) sidebarRolesItem.style.display = 'block';
       if (sidebarSettingsItem) sidebarSettingsItem.style.display = 'block';
     }
 
@@ -239,6 +260,8 @@ function switchView(viewName, param = null) {
     loadAdminTicketsPanel();
   } else if (viewName === 'logs') {
     fetchAdminLogs();
+  } else if (viewName === 'roles') {
+    loadAdminRoles();
   } else if (viewName === 'settings') {
     loadPanelSettingsUsers();
   } else if (viewName === 'factions') {
@@ -443,15 +466,11 @@ async function handleRegister(e) {
     if (!res.ok) throw new Error(data.error || 'Eroare la înregistrare.');
 
     closeModal('modal-register');
-    showToast(data.message, 'success');
+    showToast(data.message || 'Cont creat cu succes! Te poți conecta acum.', 'success');
     
-    document.getElementById('verify-email').value = email;
-    const verifyInput = document.getElementById('verify-code');
-    const fallbackCode = data.verify_code || data.debug_code || '';
-    if (verifyInput) {
-      verifyInput.value = fallbackCode;
-    }
-    openModal('modal-verify-code');
+    const loginUserEl = document.getElementById('login-username');
+    if (loginUserEl) loginUserEl.value = username;
+    openModal('modal-login');
 
   } catch (err) {
     showToast(err.message, 'error');
@@ -601,7 +620,10 @@ async function loadDashboardActivities() {
         icon = 'fa-solid fa-image';
       }
 
-      const dateStr = new Date(act.created_at).toLocaleString('ro-RO', { hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit' });
+      let dateObj = new Date(act.created_at);
+      let dateStr = isNaN(dateObj.getTime()) ? String(act.created_at) : dateObj.toLocaleString('ro-RO', { 
+        hour: '2-digit', minute: '2-digit', second: '2-digit', day: '2-digit', month: '2-digit', timeZone: 'Europe/Bucharest' 
+      });
 
       return `
         <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.6rem 1rem; background: rgba(255,255,255,0.02); border-left: 3px solid ${color}; border-radius: 4px; transition: 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background='rgba(255,255,255,0.02)'">
@@ -609,7 +631,7 @@ async function loadDashboardActivities() {
             <i class="${icon}" style="color: ${color}; font-size: 1rem;"></i>
             <div>
               <span style="color: white; font-weight: 700;">${act.username}</span>:
-              <span style="color: var(--x-text-body); font-size: 0.9rem;">${act.description}</span>
+              <span style="color: var(--x-text-body); font-size: 0.9rem;">${fixDiacritics(act.description)}</span>
             </div>
           </div>
           <div style="color: var(--x-text-muted); font-size: 0.75rem; white-space: nowrap; font-weight: 500;">
@@ -2026,8 +2048,8 @@ async function loadForum() {
           <i class="${c.icon}"></i>
         </div>
         <div style="flex: 1;">
-          <h3 style="color: white; font-size: 1.2rem; margin-bottom: 0.3rem;">${c.title}</h3>
-          <div style="color: var(--x-text-muted); font-size: 0.9rem;">${c.description}</div>
+          <h3 style="color: white; font-size: 1.2rem; margin-bottom: 0.3rem;">${fixDiacritics(c.title)}</h3>
+          <div style="color: var(--x-text-muted); font-size: 0.9rem;">${fixDiacritics(c.description)}</div>
         </div>
         <button class="btn btn-glass" onclick="openForumCategory(${c.id}, '${c.title}')">Vezi Subiecte</button>
       </div>

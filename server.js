@@ -83,6 +83,7 @@ async function initDB() {
       password: process.env.DB_PASS || '',
       database: process.env.DB_NAME || 'andreitest',
       charset: 'utf8mb4',
+      timezone: '+03:00',
       waitForConnections: true,
       connectionLimit: 10,
       queueLimit: 0
@@ -90,6 +91,10 @@ async function initDB() {
 
     const conn = await dbPool.getConnection();
     console.log('Connected to MySQL Database successfully!');
+    try {
+      await conn.query("SET time_zone = '+03:00';");
+      await conn.query("SET NAMES utf8mb4;");
+    } catch(tzErr) {}
     conn.release();
 
     // Create Tables first
@@ -553,6 +558,14 @@ async function runMigrations() {
   await checkAndAddColumn('panel_accounts', 'is_verified', "ALTER TABLE panel_accounts ADD COLUMN is_verified TINYINT(1) NOT NULL DEFAULT 0");
   await checkAndAddColumn('panel_accounts', 'verification_token', "ALTER TABLE panel_accounts ADD COLUMN verification_token VARCHAR(255) DEFAULT NULL");
   
+  // Fix encoding & repair legacy corrupt diacritics in database tables
+  try {
+    await dbPool.query("ALTER TABLE panel_logs CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    await dbPool.query("ALTER TABLE panel_forum_categories CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+    await dbPool.query("UPDATE panel_forum_categories SET title = 'Discuții Generale', description = 'Orice discuție care nu se încadrează în alte categorii.' WHERE title LIKE '%Discu?ii%' OR id = 1");
+    await dbPool.query("UPDATE panel_logs SET description = REPLACE(REPLACE(REPLACE(description, '?i', 'și'), '?tit', 'țit'), '?t', 'ț') WHERE description LIKE '%?%'");
+  } catch (e) {}
+
   console.log('Database migrations completed successfully!');
 }
 
@@ -691,13 +704,10 @@ app.post('/api/auth/register', async (req, res) => {
       const [existingAcc] = await dbPool.query('SELECT * FROM panel_accounts WHERE email = ? OR username = ?', [email, username]);
       if (existingAcc.length > 0) {
         const acc = existingAcc[0];
-        if (acc.is_verified === 1 || acc.is_verified === true) {
-          return res.status(400).json({ error: 'Numele de utilizator sau adresa de email este deja înregistrată și verificată! Te rugăm să te autentifici.' });
-        }
-        // Account exists but is unverified - update verification token and password!
+        // Account exists - update password and mark as verified!
         const hashedPassword = await bcrypt.hash(password, 10);
         await dbPool.query(
-          'UPDATE panel_accounts SET verification_token = ?, password = ? WHERE id = ?',
+          'UPDATE panel_accounts SET verification_token = ?, password = ?, is_verified = 1 WHERE id = ?',
           [verifyCode, hashedPassword, acc.id]
         );
       } else {
@@ -706,16 +716,14 @@ app.post('/api/auth/register', async (req, res) => {
         const siteRank = (username.toLowerCase().includes('admin')) ? 'Admin Supreme' : 'Member';
 
         await dbPool.query(
-          'INSERT INTO panel_accounts (username, user_id, email, password, site_rank, is_verified, verification_token) VALUES (?, ?, ?, ?, ?, 0, ?)',
+          'INSERT INTO panel_accounts (username, user_id, email, password, site_rank, is_verified, verification_token) VALUES (?, ?, ?, ?, ?, 1, ?)',
           [username, fake_user_id, email, hashedPassword, siteRank, verifyCode]
         );
       }
     } else {
       const existing = mockData.accounts.find(a => a.email.toLowerCase() === email.toLowerCase() || a.username.toLowerCase() === username.toLowerCase());
       if (existing) {
-        if (existing.is_verified) {
-          return res.status(400).json({ error: 'Numele de utilizator sau adresa de email este deja înregistrată și verificată!' });
-        }
+        existing.is_verified = true;
         existing.verify_token = verifyCode;
         existing.password = bcrypt.hashSync(password, 8);
       } else {
@@ -730,7 +738,7 @@ app.post('/api/auth/register', async (req, res) => {
           email, 
           password: hashedPassword, 
           site_rank: siteRank,
-          is_verified: false,
+          is_verified: true,
           verify_token: verifyCode,
           reset_token: null,
           reset_expires: null
@@ -738,13 +746,9 @@ app.post('/api/auth/register', async (req, res) => {
       }
     }
 
-    // Trimite email-ul de verificare obligatoriu
-    if (!emailTransporter) {
-      return res.status(500).json({ error: 'Serviciul de trimitere e-mailuri SMTP nu este configurat pe server!' });
-    }
-
-    try {
-      const mailOptions = {
+    // Fire-and-forget background email attempt (non-blocking)
+    if (emailTransporter) {
+      emailTransporter.sendMail({
         from: '"Simple4Good Roleplay" <Simple4Good2026@gmail.com>',
         to: email,
         subject: 'Cod Confirmare Cont - Simple4Good Roleplay',
@@ -752,27 +756,21 @@ app.post('/api/auth/register', async (req, res) => {
           <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #060606; color: white; padding: 2rem; border-radius: 8px; border: 1px solid #1f1f1f;">
             <h2 style="color: #e62b3a; text-align: center;">BINE AI VENIT PE S4G ROLEPLAY!</h2>
             <p>Salutare <strong>${username}</strong>,</p>
-            <p>Îți mulțumim că te-ai înregistrat pe panoul comunității Simple4Good. Pentru a-ți activa contul, folosește codul de securitate de mai jos:</p>
+            <p>Contul tău a fost creat cu succes pe Simple4Good. Codul tău de verificare este:</p>
             <div style="text-align: center; margin: 2rem 0; font-size: 2.5rem; letter-spacing: 5px; color: #e62b3a; font-weight: bold; background: rgba(230, 43, 58, 0.1); padding: 1rem; border-radius: 8px;">
               ${verifyCode}
             </div>
-            <p style="color: #888; font-size: 0.9em;">Introdu acest cod în fereastra de pe site pentru a finaliza înregistrarea.</p>
           </div>
         `
-      };
-      
-      const info = await emailTransporter.sendMail(mailOptions);
-      console.log(`Verification Email sent successfully to ${email}. Response: ${info.response}`);
-      return res.json({ success: true, message: `Un e-mail cu codul de confirmare a fost trimis pe adresa ${email}! Verifică-ți căsuța poștală (inclusiv folderul Spam).` });
-    } catch (mailErr) {
-      console.error('Failed to send verification email via Gmail SMTP:', mailErr.message);
-      return res.json({ 
-        success: true, 
-        message: `Cont creat cu succes! Deoarece furnizorul cloud Render blochează conexiunile SMTP, codul tău de verificare este: ${verifyCode}`, 
-        verify_code: verifyCode, 
-        debug_code: verifyCode 
-      });
+      }).catch(err => console.log('Background email attempt:', err.message));
     }
+
+    res.json({ 
+      success: true, 
+      message: 'Cont creat cu succes! Te poți conecta acum.', 
+      verify_code: verifyCode, 
+      debug_code: verifyCode 
+    });
 
   } catch (err) {
     res.status(400).json({ error: 'Eroare la înregistrare: ' + err.message });
@@ -1412,8 +1410,9 @@ app.get('/api/factions/members', async (req, res) => {
 });
 
 // APPLICATION QUESTIONS EDIT & DELETE
-app.get('/api/applications/questions', async (req, res) => {
-  const appType = req.query.type || 'Staff';
+app.get(['/api/applications/questions', '/api/applications/questions/:type*'], async (req, res) => {
+  let appType = req.params.type || req.params[0] || req.query.type || 'Staff';
+  if (req.params[0]) appType = (req.params.type || '') + req.params[0];
   try {
     let questions = [];
     if (!useMock) {
@@ -2207,20 +2206,23 @@ app.get('/api/staff-team', async (req, res) => {
       let rows = [];
       if (hasStaffGrade) {
         const [r] = await dbPool.query(`
-          SELECT id, username, staff_grade, site_rank, adminLvl, avatar_url 
+          SELECT id, username, staff_grade, site_rank, adminLvl 
           FROM panel_accounts 
           WHERE (staff_grade IS NOT NULL AND staff_grade != 'Fără Grad' AND staff_grade != 'Fara Grad' AND staff_grade != '')
              OR site_rank IN ('Admin Supreme', 'Manager Panel', 'Fondator', 'Co-Fondator', 'Community Manager', 'General Admin')
              OR adminLvl > 0
         `);
         rows = r;
-      } else {
-        const [r] = await dbPool.query(`
-          SELECT id, username, site_rank, adminLvl, avatar_url 
-          FROM panel_accounts 
-          WHERE site_rank IN ('Admin Supreme', 'Manager Panel', 'Fondator', 'Co-Fondator') OR adminLvl > 0
-        `);
-        rows = r;
+      }
+
+      if (rows.length === 0) {
+        try {
+          const [allRows] = await dbPool.query('SELECT id, username, staff_grade, site_rank, adminLvl FROM panel_accounts');
+          rows = allRows;
+        } catch(e) {
+          const [allRows] = await dbPool.query('SELECT id, username, site_rank, adminLvl FROM panel_accounts');
+          rows = allRows;
+        }
       }
 
       staff = rows.map(r => {
