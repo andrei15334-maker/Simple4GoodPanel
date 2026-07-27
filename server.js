@@ -2789,8 +2789,9 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Eroare server: ' + err.message });
 });
 
-initDB().then(() => {
-  app.listen(PORT, () => {
-    console.log(`🚀 S4G FiveM Web Panel is RUNNING on http://localhost:${PORT}`);
+app.listen(PORT, () => {
+  console.log(`🚀 S4G FiveM Web Panel is RUNNING on http://localhost:${PORT}`);
+  initDB().catch(err => {
+    console.error("DB Startup Error:", err.message);
   });
 });

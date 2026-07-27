@@ -2394,37 +2394,37 @@ async function adminSaveAppStatuses() {
 let editingRoleId = null;
 
 async function loadAdminRoles() {
+  const listEl = document.getElementById('admin-existing-roles-list');
   try {
     const res = await fetch('/api/admin/roles', {
       headers: { 'Authorization': `Bearer ${localStorage.getItem('s4g_token') || token}` }
     });
     const data = await safeParseResponse(res);
+    if (!res.ok) throw new Error(data.error || 'Acces interzis la roluri');
     currentRoles = data.roles || [];
 
-    const listEl = document.getElementById('admin-existing-roles-list');
     if (listEl) {
       if (currentRoles.length === 0) {
         listEl.innerHTML = '<div style="color: var(--x-text-muted); font-size: 0.85rem; padding: 0.5rem 0;">Nu există roluri custom create în baza de date.</div>';
       } else {
         listEl.innerHTML = currentRoles.map(r => `
-          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--x-border); padding: 0.6rem 0.8rem; border-radius: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--x-border); padding: 0.7rem 0.9rem; border-radius: 6px; margin-bottom: 0.6rem;">
             <div>
-              <span style="color: white; font-weight: 700; font-size: 0.95rem;">${r.name}</span>
+              <span style="color: white; font-weight: 700; font-size: 0.95rem;"><i class="fa-solid fa-user-shield" style="color: var(--x-pink); margin-right: 0.4rem;"></i>${r.name}</span>
               <div style="font-size: 0.75rem; color: var(--x-gold); margin-top: 0.2rem;">
-                ${(r.permissions || []).length > 0 ? (r.permissions || []).join(', ') : 'Fără permisiuni'}
+                ${(r.permissions || []).length > 0 ? (r.permissions || []).join(', ') : 'Fără permisiuni specifice'}
               </div>
             </div>
             <div style="display: flex; gap: 0.4rem;">
-              <button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="editRole(${r.id})"><i class="fa-solid fa-pen"></i> Editează</button>
-              <button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="deleteRole(${r.id})"><i class="fa-solid fa-trash"></i> Șterge</button>
+              <button type="button" class="btn btn-glass" style="padding: 0.25rem 0.6rem; font-size: 0.75rem;" onclick="editRole(${r.id})"><i class="fa-solid fa-pen"></i> Editează</button>
+              <button type="button" class="btn btn-glass" style="padding: 0.25rem 0.6rem; font-size: 0.75rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="deleteRole(${r.id})"><i class="fa-solid fa-trash"></i> Șterge</button>
             </div>
           </div>
         `).join('');
       }
     }
   } catch (err) {
-    console.error('Error loading roles', err);
-    const listEl = document.getElementById('admin-existing-roles-list');
+    console.error('Error loading roles:', err);
     if (listEl) {
       listEl.innerHTML = `<div style="color: var(--x-danger); font-size: 0.85rem; padding: 0.5rem 0;">Eroare la încărcare: ${err.message || 'Acces interzis'}</div>`;
     }
