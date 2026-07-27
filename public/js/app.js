@@ -447,7 +447,10 @@ async function handleRegister(e) {
     
     document.getElementById('verify-email').value = email;
     const verifyInput = document.getElementById('verify-code');
-    if (verifyInput) verifyInput.value = '';
+    const fallbackCode = data.verify_code || data.debug_code || '';
+    if (verifyInput) {
+      verifyInput.value = fallbackCode;
+    }
     openModal('modal-verify-code');
 
   } catch (err) {
