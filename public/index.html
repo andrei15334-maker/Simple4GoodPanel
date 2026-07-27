@@ -855,7 +855,7 @@
               Creează roluri noi, editează denumirile, modifică permisiunile sau șterge gradele existente cu control total asupra accesului pe panel.
             </p>
 
-            <form onsubmit="adminSaveRole(event); return false;" style="background: rgba(255,255,255,0.02); border: 1px solid var(--x-border); padding: 1.5rem; border-radius: var(--x-radius-md); margin-bottom: 2rem;">
+            <div style="background: rgba(255,255,255,0.02); border: 1px solid var(--x-border); padding: 1.5rem; border-radius: var(--x-radius-md); margin-bottom: 2rem;">
               <input type="hidden" id="role-edit-id">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h4 style="color: white; font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; margin: 0;" id="role-form-title">
@@ -901,10 +901,10 @@
                 </label>
               </div>
 
-              <button type="submit" class="btn btn-pink glow-btn" id="btn-submit-role" style="margin-top: 1rem; width: 100%; justify-content: center; font-size: 1.05rem;">
+              <button type="button" onclick="adminSaveRole(event)" class="btn btn-pink glow-btn" id="btn-submit-role" style="margin-top: 1rem; width: 100%; justify-content: center; font-size: 1.05rem;">
                 <i class="fa-solid fa-floppy-disk"></i> SALVEAZĂ ROLUL
               </button>
-            </form>
+            </div>
 
             <h4 style="color: white; font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; margin-bottom: 1rem;">
               <i class="fa-solid fa-list-check" style="color: var(--x-gold);"></i> Lista Rolurilor Existente pe Panel
@@ -1438,6 +1438,6 @@
     </div>
   </div>
 
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=2.0.1"></script>
 </body>
 </html>
