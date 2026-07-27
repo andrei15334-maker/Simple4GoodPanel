@@ -1410,9 +1410,16 @@ app.get('/api/factions/members', async (req, res) => {
 });
 
 // APPLICATION QUESTIONS EDIT & DELETE
-app.get(['/api/applications/questions', '/api/applications/questions/:type*'], async (req, res) => {
-  let appType = req.params.type || req.params[0] || req.query.type || 'Staff';
-  if (req.params[0]) appType = (req.params.type || '') + req.params[0];
+app.get('/api/applications/questions*', async (req, res) => {
+  let appType = req.query.type;
+  if (!appType) {
+    const rawPath = req.path.replace('/api/applications/questions', '').replace(/^\//, '');
+    if (rawPath) {
+      try { appType = decodeURIComponent(rawPath); } catch(e) { appType = rawPath; }
+    }
+  }
+  if (!appType) appType = 'Staff';
+
   try {
     let questions = [];
     if (!useMock) {
@@ -1429,7 +1436,7 @@ app.get(['/api/applications/questions', '/api/applications/questions/:type*'], a
       const [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE app_type = ? ORDER BY id ASC', [appType]);
       questions = q;
     } else {
-      questions = mockData.questions.filter(q => q.app_type === appType);
+      questions = (mockData.questions || []).filter(q => q.app_type === appType);
     }
     res.json({ questions });
   } catch (err) {
@@ -1494,7 +1501,7 @@ app.post('/api/applications', authenticateToken, async (req, res) => {
       );
       await dbPool.query(
         'INSERT INTO panel_logs (user_id, action_type, description) VALUES (?, ?, ?)',
-        [req.user.id, 'APPLICATION_SUBMIT', `${req.user.username} a trimis o aplicație pentru ${app_type}.`]
+        [req.user.id, 'APPLICATION_SUBMIT', `${req.user.username} a trimis o aplicatie pentru ${app_type}.`]
       );
     } else {
       mockData.applications.push({ id: mockData.applications.length + 1, user_id: req.user.user_id, app_type, name_rp, age, answers, status: 'In Asteptare' });
@@ -1604,7 +1611,7 @@ app.post('/api/applications/:id/action', authenticateToken, async (req, res) => 
         const actionVerb = action === 'accept' ? 'acceptat' : 'respins';
         await dbPool.query(
           'INSERT INTO panel_logs (user_id, action_type, description, target_id) VALUES (?, ?, ?, ?)',
-          [user.id, actionType, `${user.username} a ${actionVerb} aplicația lui ${applicantName} pentru ${app.app_type}.`, app.user_id]
+          [user.id, actionType, `${user.username} a ${actionVerb} aplicatia lui ${applicantName} pentru ${app.app_type}.`, app.user_id]
         );
       } catch (logErr) {
         console.warn('Failed to log application action:', logErr.message);
@@ -2534,9 +2541,14 @@ app.delete('/api/forum/posts/:id', authenticateToken, async (req, res) => {
 
 // --- ROLE & APP STATUS API ---
 
+function isRoleAdminUser(user) {
+  if (!user) return false;
+  const rank = (user.site_rank || '').toLowerCase();
+  return user.adminLvl >= 5 || rank.includes('manager') || rank.includes('supreme') || rank.includes('admin') || rank.includes('fondator');
+}
+
 app.get('/api/admin/roles', authenticateToken, async (req, res) => {
-  const isAdmin = req.user.adminLvl >= 7 || req.user.site_rank === 'Manager Panel' || req.user.site_rank === 'Admin Supreme';
-  if (!isAdmin) return res.status(403).json({ error: 'Acces interzis.' });
+  if (!isRoleAdminUser(req.user)) return res.status(403).json({ error: 'Acces interzis.' });
   
   if (!useMock) {
     try {
@@ -2548,10 +2560,10 @@ app.get('/api/admin/roles', authenticateToken, async (req, res) => {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
       `);
-      const [rows] = await dbPool.query('SELECT * FROM panel_roles');
+      const [rows] = await dbPool.query('SELECT * FROM panel_roles ORDER BY id DESC');
       const roles = rows.map(r => {
         let perms = [];
-        try { perms = JSON.parse(r.permissions); } catch(e) { perms = []; }
+        try { perms = typeof r.permissions === 'string' ? JSON.parse(r.permissions) : r.permissions; } catch(e) { perms = []; }
         return { id: r.id, name: r.name, permissions: perms };
       });
       return res.json({ roles });
@@ -2559,12 +2571,11 @@ app.get('/api/admin/roles', authenticateToken, async (req, res) => {
       return res.status(500).json({ error: 'Eroare bază de date: ' + err.message });
     }
   }
-  res.json({ roles: mockData.roles });
+  res.json({ roles: mockData.roles || [] });
 });
 
 app.post('/api/admin/roles', authenticateToken, async (req, res) => {
-  const isManager = req.user.site_rank === 'Manager Panel' || req.user.site_rank === 'Admin Supreme' || req.user.adminLvl >= 7;
-  if (!isManager) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot crea roluri.' });
+  if (!isRoleAdminUser(req.user)) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot crea roluri.' });
   const { name, permissions } = req.body;
   if (!name) return res.status(400).json({ error: 'Numele rolului este obligatoriu.' });
   
@@ -2583,24 +2594,24 @@ app.post('/api/admin/roles', authenticateToken, async (req, res) => {
         'INSERT INTO panel_roles (name, permissions) VALUES (?, ?) ON DUPLICATE KEY UPDATE permissions = ?',
         [name, permsStr, permsStr]
       );
-      return res.json({ success: true, message: 'Rol salvat cu succes în baza de date!' });
+      return res.json({ success: true, message: `Rolul '${name}' a fost salvat cu succes!` });
     } catch(err) {
       return res.status(500).json({ error: 'Eroare la salvarea rolului: ' + err.message });
     }
   }
 
+  if (!mockData.roles) mockData.roles = [];
   const existing = mockData.roles.find(r => r.name.toLowerCase() === name.toLowerCase());
   if (existing) {
     existing.permissions = permissions || [];
   } else {
     mockData.roles.push({ id: mockData.roles.length + 1, name, permissions: permissions || [] });
   }
-  res.json({ success: true, message: 'Rol salvat cu succes!' });
+  res.json({ success: true, message: `Rolul '${name}' a fost salvat cu succes!` });
 });
 
 app.delete('/api/admin/roles/:id', authenticateToken, async (req, res) => {
-  const isManager = req.user.site_rank === 'Manager Panel' || req.user.site_rank === 'Admin Supreme' || req.user.adminLvl >= 7;
-  if (!isManager) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot șterge roluri.' });
+  if (!isRoleAdminUser(req.user)) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot șterge roluri.' });
 
   const roleId = parseInt(req.params.id);
   try {

@@ -14,21 +14,25 @@ let currentProfileSanctions = [];
 const PUNISH_PAGE_SIZE = 7;
 
 function fixDiacritics(str) {
-  if (!str || typeof str !== 'string') return str || '';
-  return str
-    .replace(/\?i\b/g, 'și')
-    .replace(/\?i/g, 'și')
-    .replace(/Discu\?ii/gi, 'Discuții')
-    .replace(/discu\?ie/gi, 'discuție')
-    .replace(/încadreaz\?/gi, 'încadrează')
-    .replace(/preg\?tit/gi, 'pregătit')
-    .replace(/activit\?ți/gi, 'activități')
-    .replace(/solicit\?rile/gi, 'solicitările')
-    .replace(/categorii\?/gi, 'categorii')
-    .replace(/\?t/g, 'ț')
-    .replace(/\?a/g, 'ă')
-    .replace(/\?e/g, 'e')
-    .replace(/\?/g, 'ș');
+  if (!str) return '';
+  return String(str)
+    .replace(/aplicașia|aplica\?ia|aplicația/gi, 'aplicatia')
+    .replace(/aplicașie|aplica\?ie|aplicație/gi, 'aplicatie')
+    .replace(/încșrcat|înc\?rcat|inc\?rcat|încărcat/gi, 'incarcat')
+    .replace(/pregțit|preg\?tit|pregătit/gi, 'pregatit')
+    .replace(/reclamașie|reclama\?ie|reclamație/gi, 'reclamatie')
+    .replace(/sancșiune|sanc\?iune|sancțiune/gi, 'sanctiune')
+    .replace(/dovad\?|dovadă/gi, 'dovada')
+    .replace(/discușii|discu\?ii|discuții/gi, 'discutii')
+    .replace(/[șş]/g, 's')
+    .replace(/[ȘŞ]/g, 'S')
+    .replace(/[țţ]/g, 't')
+    .replace(/[ȚŢ]/g, 'T')
+    .replace(/[ăâ]/g, 'a')
+    .replace(/[ĂÂ]/g, 'A')
+    .replace(/[î]/g, 'i')
+    .replace(/[Î]/g, 'I')
+    .replace(/\?/g, '');
 }
 
 
@@ -2466,7 +2470,8 @@ async function deleteRole(roleId) {
   });
 }
 
-async function adminSaveRole() {
+async function adminSaveRole(e) {
+  if (e && e.preventDefault) e.preventDefault();
   const name = document.getElementById('admin-role-name').value;
   if (!name) return showToast('Introdu numele rolului!', 'error');
   
@@ -2479,13 +2484,13 @@ async function adminSaveRole() {
   try {
     const res = await fetch('/api/admin/roles', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('s4g_token') || token}` },
       body: JSON.stringify({ id: editingRoleId, name, permissions })
     });
     const data = await safeParseResponse(res);
     if (!res.ok) throw new Error(data.error);
     
-    showToast(data.message, 'success');
+    showToast(data.message || 'Rol salvat cu succes!', 'success');
     resetRoleForm();
     loadAdminRoles();
     if (typeof loadAdminStaffManager === 'function') loadAdminStaffManager();
@@ -2493,6 +2498,8 @@ async function adminSaveRole() {
     showToast(err.message, 'error');
   }
 }
+
+window.handleAdminCreateRole = adminSaveRole;
 
 // RULES EDITOR
 async function loadAdminRuleEditor(category) {

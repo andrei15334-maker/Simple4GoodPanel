@@ -855,13 +855,13 @@
               Creează roluri noi, editează denumirile, modifică permisiunile sau șterge gradele existente cu control total asupra accesului pe panel.
             </p>
 
-            <form onsubmit="handleAdminCreateRole(event)" style="background: rgba(255,255,255,0.02); border: 1px solid var(--x-border); padding: 1.5rem; border-radius: var(--x-radius-md); margin-bottom: 2rem;">
+            <form onsubmit="adminSaveRole(event)" style="background: rgba(255,255,255,0.02); border: 1px solid var(--x-border); padding: 1.5rem; border-radius: var(--x-radius-md); margin-bottom: 2rem;">
               <input type="hidden" id="role-edit-id">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h4 style="color: white; font-family: 'Space Grotesk', sans-serif; font-size: 1.1rem; margin: 0;" id="role-form-title">
                   <i class="fa-solid fa-plus-circle" style="color: var(--x-pink);"></i> Creează un Rol Nou
                 </h4>
-                <button type="button" class="btn btn-glass" id="btn-cancel-role-edit" style="display: none; padding: 0.3rem 0.7rem; font-size: 0.8rem;" onclick="resetRoleForm()">Renunță Editare</button>
+                <button type="button" class="btn btn-glass" id="btn-cancel-edit-role" style="display: none; padding: 0.3rem 0.7rem; font-size: 0.8rem;" onclick="resetRoleForm()">Renunță Editare</button>
               </div>
 
               <div class="form-group">
@@ -870,7 +870,7 @@
               </div>
 
               <label class="form-label" style="margin-top: 1rem; display: block;">Permisiuni & Acces în Panel (Bifați accesul dorit):</label>
-              <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.8rem; margin: 1rem 0;">
+              <div id="admin-role-permissions-list" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 0.8rem; margin: 1rem 0;">
                 <label style="display: flex; align-items: center; gap: 0.6rem; color: white; background: rgba(255,255,255,0.03); padding: 0.7rem; border-radius: 6px; cursor: pointer; border: 1px solid rgba(255,255,255,0.05);">
                   <input type="checkbox" id="perm-full-access" value="full_access">
                   <span>🔒 Acces Complet Manager Panel</span>
