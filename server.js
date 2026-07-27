@@ -765,7 +765,7 @@ app.post('/api/auth/login', async (req, res) => {
       
       // Basic check for DB implementation, assume verified for now if no column exists
       if (account.is_verified === 0 || account.is_verified === false) {
-        return res.status(403).json({ error: 'Contul nu este verificat! Te rugăm să îți verifici adresa de e-mail.' });
+        return res.status(403).json({ error: 'Contul nu este verificat! Te rugăm să îți verifici adresa de e-mail.', unverified_email: account.email });
       }
 
     } else {
@@ -1385,18 +1385,18 @@ app.get('/api/applications/questions', async (req, res) => {
   try {
     let questions = [];
     if (!useMock) {
-      let hasTable = false;
       try {
-        const [tables] = await dbPool.query("SHOW TABLES LIKE 'panel_app_questions'");
-        hasTable = tables.length > 0;
+        await dbPool.query(`
+          CREATE TABLE IF NOT EXISTS panel_app_questions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            app_type VARCHAR(100) NOT NULL,
+            question_text TEXT NOT NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
       } catch (e) {}
 
-      if (hasTable) {
-        const [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE app_type = ? ORDER BY id ASC', [appType]);
-        questions = q;
-      } else {
-        questions = [];
-      }
+      const [q] = await dbPool.query('SELECT * FROM panel_app_questions WHERE app_type = ? ORDER BY id ASC', [appType]);
+      questions = q;
     } else {
       questions = mockData.questions.filter(q => q.app_type === appType);
     }
@@ -1412,13 +1412,23 @@ app.post('/api/applications/questions', authenticateToken, async (req, res) => {
 
   try {
     if (!useMock) {
+      try {
+        await dbPool.query(`
+          CREATE TABLE IF NOT EXISTS panel_app_questions (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            app_type VARCHAR(100) NOT NULL,
+            question_text TEXT NOT NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+      } catch (e) {}
+
       await dbPool.query('INSERT INTO panel_app_questions (app_type, question_text) VALUES (?, ?)', [app_type, question_text]);
     } else {
       mockData.questions.push({ id: mockData.questions.length + 1, app_type, question_text });
     }
     res.json({ success: true, message: 'Întrebare adăugată cu succes!' });
   } catch (err) {
-    res.status(500).json({ error: 'Eroare adăugare întrebare.' });
+    res.status(500).json({ error: 'Eroare adăugare întrebare: ' + err.message });
   }
 });
 
@@ -1713,27 +1723,44 @@ app.get('/api/admin/logs', authenticateToken, async (req, res) => {
   try {
     let allLogs = [];
     if (!useMock) {
-      let sql = 'SELECT * FROM panel_logs';
+      try {
+        await dbPool.query(`
+          CREATE TABLE IF NOT EXISTS panel_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            user_id INT NOT NULL,
+            action_type VARCHAR(100) NOT NULL,
+            description TEXT NOT NULL,
+            target_id INT DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+      } catch (e) {}
+
+      let sql = `
+        SELECT l.id, l.user_id, l.action_type, l.description, l.target_id, l.created_at, a.username 
+        FROM panel_logs l 
+        LEFT JOIN panel_accounts a ON l.user_id = a.id OR l.user_id = a.user_id
+      `;
       let params = [];
       
       if (search) {
         const isNum = !isNaN(Number(search));
         if (isNum) {
-          sql += ' WHERE target_id = ? OR user_id = ? OR description LIKE ?';
+          sql += ' WHERE l.target_id = ? OR l.user_id = ? OR l.description LIKE ?';
           params = [Number(search), Number(search), `%${search}%`];
         } else {
-          sql += ' WHERE action_type LIKE ? OR description LIKE ?';
-          params = [`%${search}%`, `%${search}%`];
+          sql += ' WHERE l.action_type LIKE ? OR l.description LIKE ? OR a.username LIKE ?';
+          params = [`%${search}%`, `%${search}%`, `%${search}%`];
         }
       }
-      sql += ' ORDER BY created_at DESC LIMIT 200';
+      sql += ' ORDER BY l.id DESC LIMIT 200';
       const [l] = await dbPool.query(sql, params);
-      allLogs = l;
-
-
-
+      allLogs = l.map(row => ({
+        ...row,
+        username: row.username || (row.user_id > 0 ? `Utilizator #${row.user_id}` : 'Sistem Panel')
+      }));
     } else {
-      allLogs = mockData.logs;
+      allLogs = mockData.logs || [];
     }
 
     const totalCount = allLogs.length;
@@ -2145,25 +2172,65 @@ app.get('/api/staff-team', async (req, res) => {
         hasStaffGrade = cols.some(c => (c.Field || c.field || '').toLowerCase() === 'staff_grade');
       } catch (e) {}
 
+      let rows = [];
       if (hasStaffGrade) {
-        const [rows] = await dbPool.query("SELECT id, username, staff_grade, avatar_url FROM panel_accounts WHERE staff_grade IS NOT NULL AND staff_grade != 'Fără Grad' AND staff_grade != 'Fara Grad'");
-        staff = rows.map(r => ({
+        const [r] = await dbPool.query(`
+          SELECT id, username, staff_grade, site_rank, adminLvl, avatar_url 
+          FROM panel_accounts 
+          WHERE (staff_grade IS NOT NULL AND staff_grade != 'Fără Grad' AND staff_grade != 'Fara Grad' AND staff_grade != '')
+             OR site_rank IN ('Admin Supreme', 'Manager Panel', 'Fondator', 'Co-Fondator', 'Community Manager', 'General Admin')
+             OR adminLvl > 0
+        `);
+        rows = r;
+      } else {
+        const [r] = await dbPool.query(`
+          SELECT id, username, site_rank, adminLvl, avatar_url 
+          FROM panel_accounts 
+          WHERE site_rank IN ('Admin Supreme', 'Manager Panel', 'Fondator', 'Co-Fondator') OR adminLvl > 0
+        `);
+        rows = r;
+      }
+
+      staff = rows.map(r => {
+        let displayRole = r.staff_grade;
+        if (!displayRole || displayRole === 'Fără Grad' || displayRole === 'Fara Grad') {
+          if (r.site_rank === 'Admin Supreme' || r.site_rank === 'Manager Panel') {
+            displayRole = 'Fondator';
+          } else if (r.adminLvl >= 9) {
+            displayRole = 'Co-Fondator';
+          } else if (r.adminLvl >= 7) {
+            displayRole = 'General Admin';
+          } else if (r.adminLvl > 0) {
+            displayRole = 'Administrator';
+          } else {
+            displayRole = 'Helper';
+          }
+        }
+        return {
           member_name: r.username,
-          role: r.staff_grade,
+          role: displayRole,
           avatar_url: r.avatar_url,
           description: 'Membru al echipei administrative.'
-        }));
-      } else {
-        staff = [];
-      }
+        };
+      });
     } else {
-      const rows = mockData.accounts.filter(a => a.staff_grade && a.staff_grade !== 'Fără Grad' && a.staff_grade !== 'Fara Grad');
-      staff = rows.map(r => ({
-        member_name: r.username,
-        role: r.staff_grade,
-        avatar_url: r.avatar_url,
-        description: 'Membru al echipei administrative.'
-      }));
+      const rows = mockData.accounts.filter(a => 
+        (a.staff_grade && a.staff_grade !== 'Fără Grad' && a.staff_grade !== 'Fara Grad') ||
+        ['Admin Supreme', 'Manager Panel', 'Fondator'].includes(a.site_rank) ||
+        a.adminLvl > 0
+      );
+      staff = rows.map(r => {
+        let displayRole = r.staff_grade;
+        if (!displayRole || displayRole === 'Fără Grad' || displayRole === 'Fara Grad') {
+          displayRole = (r.site_rank === 'Admin Supreme' || r.site_rank === 'Manager Panel') ? 'Fondator' : 'Administrator';
+        }
+        return {
+          member_name: r.username,
+          role: displayRole,
+          avatar_url: r.avatar_url,
+          description: 'Membru al echipei administrative.'
+        };
+      });
     }
 
     const order = [
@@ -2252,21 +2319,48 @@ app.post('/api/forum/posts', authenticateToken, async (req, res) => {
   }
 });
 
-app.post('/api/gallery', authenticateToken, upload.single('image'), async (req, res) => {
-  const { description } = req.body;
-  if (!req.file) return res.status(400).json({ error: 'Fisierul imagine este obligatoriu!' });
-  const image_url = '/uploads/' + req.file.filename;
-
-  const acc = mockData.accounts.find(a => a.id === req.user.id);
-  if (useMock && acc && acc.is_muted) return res.status(403).json({ error: 'Ai primit MUTE și nu mai poți posta.' });
-  try {
-    if (!useMock) {
-      await dbPool.query('INSERT INTO panel_gallery (uploader_id, uploader_name, image_url, description) VALUES (?, ?, ?, ?)', [req.user.user_id, req.user.username, image_url, description]);
-      await dbPool.query('INSERT INTO panel_logs (user_id, action_type, description) VALUES (?, ?, ?)', [req.user.id, 'GALLERY_UPLOAD', `${req.user.username} a încărcat o imagine în galerie.`]);
-    } else {
-      mockData.gallery.unshift({ id: mockData.gallery.length + 1, uploader_id: req.user.user_id, uploader_name: req.user.username, image_url, description, created_at: new Date() });
+app.post('/api/gallery', authenticateToken, (req, res, next) => {
+  upload.single('image')(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({ error: 'Eroare încărcare fișier: ' + err.message });
     }
-    res.json({ success: true, image_url });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    const { description, image_url: externalUrl } = req.body;
+    let finalImageUrl = externalUrl;
+
+    if (req.file) {
+      finalImageUrl = '/uploads/' + req.file.filename;
+    }
+
+    if (!finalImageUrl) {
+      return res.status(400).json({ error: 'Alege o imagine din PC sau introdu un URL!' });
+    }
+
+    if (!useMock) {
+      try {
+        await dbPool.query(`
+          CREATE TABLE IF NOT EXISTS panel_gallery (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            uploader_id INT NOT NULL,
+            uploader_name VARCHAR(100) NOT NULL,
+            image_url TEXT NOT NULL,
+            description TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        `);
+      } catch (e) {}
+
+      await dbPool.query('INSERT INTO panel_gallery (uploader_id, uploader_name, image_url, description) VALUES (?, ?, ?, ?)', [req.user.user_id || req.user.id, req.user.username, finalImageUrl, description || '']);
+      try {
+        await dbPool.query('INSERT INTO panel_logs (user_id, action_type, description) VALUES (?, ?, ?)', [req.user.id, 'GALLERY_UPLOAD', `${req.user.username} a încărcat o imagine în galerie.`]);
+      } catch (e) {}
+    } else {
+      mockData.gallery.unshift({ id: mockData.gallery.length + 1, uploader_id: req.user.user_id || req.user.id, uploader_name: req.user.username, image_url: finalImageUrl, description, created_at: new Date() });
+    }
+    res.json({ success: true, image_url: finalImageUrl });
   } catch (err) {
     res.status(500).json({ error: 'Eroare adăugare poză: ' + err.message });
   }
@@ -2468,6 +2562,23 @@ app.post('/api/admin/roles', authenticateToken, async (req, res) => {
     mockData.roles.push({ id: mockData.roles.length + 1, name, permissions: permissions || [] });
   }
   res.json({ success: true, message: 'Rol salvat cu succes!' });
+});
+
+app.delete('/api/admin/roles/:id', authenticateToken, async (req, res) => {
+  const isManager = req.user.site_rank === 'Manager Panel' || req.user.site_rank === 'Admin Supreme' || req.user.adminLvl >= 7;
+  if (!isManager) return res.status(403).json({ error: 'Acces interzis. Doar Managerii pot șterge roluri.' });
+
+  const roleId = parseInt(req.params.id);
+  try {
+    if (!useMock) {
+      await dbPool.query('DELETE FROM panel_roles WHERE id = ?', [roleId]);
+    } else {
+      mockData.roles = mockData.roles.filter(r => r.id !== roleId);
+    }
+    res.json({ success: true, message: 'Rolul a fost șters cu succes!' });
+  } catch (err) {
+    res.status(500).json({ error: 'Eroare la ștergerea rolului: ' + err.message });
+  }
 });
 
 app.get('/api/admin/staff', authenticateToken, async (req, res) => {

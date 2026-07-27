@@ -393,8 +393,18 @@ async function handleLogin(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, password: pass })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Eroare conectare.');
+    const data = await safeParseResponse(res);
+    if (!res.ok) {
+      if (data.error && data.error.includes('verificat')) {
+        const targetEmail = data.unverified_email || username;
+        document.getElementById('verify-email').value = targetEmail;
+        closeModal('modal-login');
+        openModal('modal-verify-code');
+        showToast('Contul nu este verificat. Introdu codul primit prin e-mail.', 'info');
+        return;
+      }
+      throw new Error(data.error || 'Eroare conectare.');
+    }
 
     localStorage.setItem('s4g_token', data.token);
     token = data.token;
@@ -409,7 +419,7 @@ async function handleLogin(e) {
   }
 }
 
-// REGISTER WITH DETAILED ERROR TOAST
+// REGISTER WITH DETAILED ERROR TOAST & VERIFICATION PROMPT
 async function handleRegister(e) {
   e.preventDefault();
   const username = document.getElementById('reg-username').value;
@@ -422,12 +432,12 @@ async function handleRegister(e) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username, email, password: pass })
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     if (!res.ok) throw new Error(data.error || 'Eroare la înregistrare.');
 
     closeModal('modal-register');
     if (data.debug_code) {
-      showToast(`DEBUG: Codul de confirmare este ${data.debug_code}`, 'success');
+      showToast(`Codul tău de verificare este: ${data.debug_code}`, 'success');
     } else {
       showToast(data.message, 'success');
     }
@@ -1787,7 +1797,7 @@ async function fetchAdminLogs(page = 1) {
     const res = await fetch(`/api/admin/logs?search=${encodeURIComponent(query)}&page=${page}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     const tbody = document.getElementById('admin-logs-table');
     const pagBox = document.getElementById('logs-pagination');
 
@@ -1803,12 +1813,17 @@ async function fetchAdminLogs(page = 1) {
       if (act.includes('JAIL') || act.includes('BAN')) badgeClass = 'badge-admin';
       if (act.includes('MAȘINĂ') || act.includes('MASINA')) badgeClass = 'badge-civil';
 
+      let executorText = l.username || (l.user_id > 0 ? `Utilizator #${l.user_id}` : 'Sistem Panel');
+      let targetText = (l.target_id && l.target_id > 0) 
+        ? `<span class="badge badge-supreme" onclick="switchView('profile', ${l.target_id})" style="cursor: pointer;"><i class="fa-solid fa-user"></i> Profil ID ${l.target_id}</span>`
+        : `<span style="color: var(--x-text-muted); font-size: 0.85rem;">-</span>`;
+
       return `
         <tr>
           <td style="font-size: 0.85rem; color: var(--x-text-muted);">${new Date(l.created_at).toLocaleString()}</td>
-          <td><b style="color: var(--x-gold);">Executant ID ${l.user_id}</b></td>
+          <td><b style="color: var(--x-gold);"><i class="fa-solid fa-user-shield"></i> ${executorText}</b></td>
           <td><span class="badge ${badgeClass}">${l.action_type}</span></td>
-          <td><span class="badge badge-supreme" onclick="switchView('profile', ${l.target_id})" style="cursor: pointer;"><i class="fa-solid fa-user"></i> Deschide Istoric ID ${l.target_id || '--'}</span></td>
+          <td>${targetText}</td>
           <td style="color: #ffffff; font-weight: 600;">${l.description}</td>
         </tr>
       `;
@@ -1823,8 +1838,9 @@ async function fetchAdminLogs(page = 1) {
     }
 
   } catch (err) {
-    showToast('Eroare la încărcarea logurilor.', 'error');
+    console.error(err);
   }
+}
 }
 
 async function loadPanelSettingsUsers() {
@@ -2329,16 +2345,91 @@ async function adminSaveAppStatuses() {
   }
 }
 
+let editingRoleId = null;
+
 async function loadAdminRoles() {
   try {
     const res = await fetch('/api/admin/roles', {
-      headers: { 'Authorization': `Bearer ${localStorage.getItem('s4g_token')}` }
+      headers: { 'Authorization': `Bearer ${localStorage.getItem('s4g_token') || token}` }
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     currentRoles = data.roles || [];
+
+    const listEl = document.getElementById('admin-existing-roles-list');
+    if (listEl) {
+      if (currentRoles.length === 0) {
+        listEl.innerHTML = '<div style="color: var(--x-text-muted); font-size: 0.85rem; padding: 0.5rem 0;">Nu există roluri custom create în baza de date.</div>';
+      } else {
+        listEl.innerHTML = currentRoles.map(r => `
+          <div style="display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.03); border: 1px solid var(--x-border); padding: 0.6rem 0.8rem; border-radius: 4px;">
+            <div>
+              <span style="color: white; font-weight: 700; font-size: 0.95rem;">${r.name}</span>
+              <div style="font-size: 0.75rem; color: var(--x-gold); margin-top: 0.2rem;">
+                ${(r.permissions || []).length > 0 ? (r.permissions || []).join(', ') : 'Fără permisiuni'}
+              </div>
+            </div>
+            <div style="display: flex; gap: 0.4rem;">
+              <button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="editRole(${r.id})"><i class="fa-solid fa-pen"></i> Editează</button>
+              <button class="btn btn-glass" style="padding: 0.2rem 0.5rem; font-size: 0.75rem; border-color: var(--x-danger); color: var(--x-danger);" onclick="deleteRole(${r.id})"><i class="fa-solid fa-trash"></i> Șterge</button>
+            </div>
+          </div>
+        `).join('');
+      }
+    }
   } catch (err) {
     console.error('Error loading roles', err);
   }
+}
+
+function editRole(roleId) {
+  const role = currentRoles.find(r => r.id === roleId);
+  if (!role) return;
+
+  editingRoleId = roleId;
+  document.getElementById('admin-role-name').value = role.name;
+
+  const checkboxes = document.querySelectorAll('#admin-role-permissions-list input[type="checkbox"]');
+  checkboxes.forEach(chk => {
+    chk.checked = (role.permissions || []).includes(chk.value);
+  });
+
+  const cancelBtn = document.getElementById('btn-cancel-edit-role');
+  if (cancelBtn) cancelBtn.style.display = 'inline-block';
+
+  showToast(`Editezi rolul '${role.name}'. Modifică permisiunile și apasă Salvează.`, 'info');
+}
+
+function resetRoleForm() {
+  editingRoleId = null;
+  document.getElementById('admin-role-name').value = '';
+  const checkboxes = document.querySelectorAll('#admin-role-permissions-list input[type="checkbox"]');
+  checkboxes.forEach(chk => chk.checked = false);
+
+  const cancelBtn = document.getElementById('btn-cancel-edit-role');
+  if (cancelBtn) cancelBtn.style.display = 'none';
+}
+
+async function deleteRole(roleId) {
+  const role = currentRoles.find(r => r.id === roleId);
+  const roleName = role ? role.name : 'acest';
+
+  showConfirmDialog(`Ești sigur că vrei să ștergi rolul '${roleName}'?`, async () => {
+    try {
+      const res = await fetch(`/api/admin/roles/${roleId}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await safeParseResponse(res);
+      if (!res.ok) throw new Error(data.error);
+
+      showToast('Rolul a fost șters cu succes!', 'success');
+      resetRoleForm();
+      loadAdminRoles();
+      if (typeof loadAdminStaffManager === 'function') loadAdminStaffManager();
+    } catch (err) {
+      showToast(err.message, 'error');
+    }
+  });
 }
 
 async function adminSaveRole() {
@@ -2354,13 +2445,16 @@ async function adminSaveRole() {
   try {
     const res = await fetch('/api/admin/roles', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('s4g_token')}` },
-      body: JSON.stringify({ name, permissions })
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ id: editingRoleId, name, permissions })
     });
-    const data = await res.json();
+    const data = await safeParseResponse(res);
     if (!res.ok) throw new Error(data.error);
+    
     showToast(data.message, 'success');
+    resetRoleForm();
     loadAdminRoles();
+    if (typeof loadAdminStaffManager === 'function') loadAdminStaffManager();
   } catch (err) {
     showToast(err.message, 'error');
   }
